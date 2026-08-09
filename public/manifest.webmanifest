@@ -1,14 +1,14 @@
 {
-  "name": "ぽんぽこ もりの あそび",
-  "short_name": "ぽんぽこもり",
-  "description": "たぬきと一緒に色・形・数を楽しむ、小さなお子さま向け知育あそび",
+  "name": "ぽんぽこ もりの だいぼうけん",
+  "short_name": "ぽんぽこの森",
+  "description": "たぬきと走って、集めて、育てる。1〜2歳向けの知育あそび",
   "lang": "ja",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#f8f3e7",
-  "theme_color": "#6fa57b",
+  "background_color": "#bfe1d1",
+  "theme_color": "#5a9c69",
   "icons": [
     {
       "src": "./icon.svg",

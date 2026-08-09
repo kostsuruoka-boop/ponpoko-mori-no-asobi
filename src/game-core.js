@@ -1,18 +1,13 @@
+export const ACTIVITY_ORDER = ["color", "shape", "count"];
+export const ROUNDS_PER_ACTIVITY = 3;
+
 export const COLORS = [
-  { id: "red", label: "あか", value: "#ef6f61", dark: "#b9473f" },
-  { id: "blue", label: "あお", value: "#65a9d8", dark: "#3379a9" },
-  { id: "yellow", label: "きいろ", value: "#f2c94c", dark: "#a67b00" },
-  { id: "green", label: "みどり", value: "#79b989", dark: "#397a4b" },
+  { id: "coral", value: "#f36f63", shadow: "#c64d45" },
+  { id: "sun", value: "#f6c744", shadow: "#c58d16" },
+  { id: "sky", value: "#68b7df", shadow: "#3885b0" },
 ];
 
-export const SHAPES = [
-  { id: "circle", label: "まる" },
-  { id: "triangle", label: "さんかく" },
-  { id: "square", label: "しかく" },
-  { id: "star", label: "おほしさま" },
-];
-
-export const SESSION_LENGTH = 4;
+export const SHAPES = ["circle", "triangle", "square"];
 
 export function shuffle(items, random = Math.random) {
   const result = [...items];
@@ -23,64 +18,81 @@ export function shuffle(items, random = Math.random) {
   return result;
 }
 
-function modeForRound(mode, roundNumber) {
-  if (mode !== "mix") return mode;
-  return ["color", "shape", "count", "color"][roundNumber % SESSION_LENGTH];
+export function createColorRound(roundIndex, random = Math.random) {
+  const target = COLORS[roundIndex % COLORS.length];
+  const distractors = COLORS.filter((color) => color.id !== target.id);
+  const items = [
+    ...Array.from({ length: 3 }, (_, index) => ({ id: `${target.id}-${index}`, color: target, isTarget: true })),
+    ...distractors.map((color, index) => ({ id: `${color.id}-${index}`, color, isTarget: false })),
+    { id: `${distractors[roundIndex % distractors.length].id}-extra`, color: distractors[roundIndex % distractors.length], isTarget: false },
+  ];
+  return { activity: "color", target, items: shuffle(items, random), targetCount: 3 };
 }
 
-export function createRound(mode, roundNumber = 0, random = Math.random) {
-  const roundMode = modeForRound(mode, roundNumber);
-
-  if (roundMode === "color") {
-    const target = COLORS[roundNumber % COLORS.length];
-    return {
-      mode: roundMode,
-      target,
-      options: shuffle([target, ...shuffle(COLORS.filter((color) => color.id !== target.id), random).slice(0, 2)], random),
-      prompt: `${target.label}い きのみは どーれ？`,
-      helper: "おなじ いろを さわってね",
-    };
-  }
-
-  if (roundMode === "shape") {
-    const target = SHAPES[roundNumber % SHAPES.length];
-    return {
-      mode: roundMode,
-      target,
-      options: shuffle([target, ...shuffle(SHAPES.filter((shape) => shape.id !== target.id), random).slice(0, 2)], random),
-      prompt: `${target.label}は どーれ？`,
-      helper: "ぴったりの かたちを さわってね",
-    };
-  }
-
-  const target = (roundNumber % 3) + 1;
+export function createShapeRound(roundIndex, random = Math.random) {
+  const target = SHAPES[roundIndex % SHAPES.length];
   return {
-    mode: "count",
+    activity: "shape",
     target,
-    options: [1, 2, 3],
-    prompt: `どんぐりを ${target}こ あげよう`,
-    helper: "どんぐりを ひとつずつ さわってね",
+    options: shuffle(SHAPES.map((shape) => ({ id: shape, isTarget: shape === target })), random),
   };
 }
 
-export function isCorrect(round, answer) {
-  if (round.mode === "count") return Number(answer) === round.target;
-  return answer === round.target.id;
+export function createCountRound(roundIndex) {
+  const target = (roundIndex % 3) + 1;
+  return {
+    activity: "count",
+    target,
+    items: Array.from({ length: target }, (_, index) => ({ id: `acorn-${target}-${index}` })),
+  };
 }
 
-export function addCount(current, target) {
-  return Math.min(current + 1, target);
+export function createRound(activity, roundIndex, random = Math.random) {
+  if (activity === "color") return createColorRound(roundIndex, random);
+  if (activity === "shape") return createShapeRound(roundIndex, random);
+  if (activity === "count") return createCountRound(roundIndex);
+  throw new Error(`Unknown activity: ${activity}`);
 }
 
-export function loadProgress(storageValue) {
-  if (!storageValue) return { totalCorrect: 0, leaves: 0 };
+export function getActivityOrder(preferredActivity = "all") {
+  return preferredActivity === "all" ? [...ACTIVITY_ORDER] : [preferredActivity];
+}
+
+export function advanceRound(activityIndex, roundIndex, activityCount) {
+  if (roundIndex + 1 < ROUNDS_PER_ACTIVITY) {
+    return { activityIndex, roundIndex: roundIndex + 1, activityComplete: false, sessionComplete: false };
+  }
+  if (activityIndex + 1 < activityCount) {
+    return { activityIndex: activityIndex + 1, roundIndex: 0, activityComplete: true, sessionComplete: false };
+  }
+  return { activityIndex, roundIndex, activityComplete: true, sessionComplete: true };
+}
+
+export function clamp(value, minimum, maximum) {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+export function loadSavedState(settingsValue, progressValue, reduceMotionDefault = false) {
+  const settings = safeParse(settingsValue);
+  const progress = safeParse(progressValue);
+  const activity = ["all", ...ACTIVITY_ORDER].includes(settings.activity) ? settings.activity : "all";
+  return {
+    settings: {
+      sound: settings.sound !== false,
+      reduceMotion: typeof settings.reduceMotion === "boolean" ? settings.reduceMotion : reduceMotionDefault,
+      activity,
+    },
+    progress: {
+      sessions: Math.max(0, Number(progress.sessions) || 0),
+    },
+  };
+}
+
+function safeParse(value) {
+  if (!value) return {};
   try {
-    const parsed = JSON.parse(storageValue);
-    return {
-      totalCorrect: Math.max(0, Number(parsed.totalCorrect) || 0),
-      leaves: Math.max(0, Number(parsed.leaves) || 0),
-    };
+    return JSON.parse(value) || {};
   } catch {
-    return { totalCorrect: 0, leaves: 0 };
+    return {};
   }
 }

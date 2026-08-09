@@ -1,289 +1,601 @@
-import { SESSION_LENGTH, addCount, createRound, isCorrect, loadProgress } from "./game-core.js";
+import {
+  ROUNDS_PER_ACTIVITY,
+  advanceRound,
+  clamp,
+  createRound,
+  getActivityOrder,
+  loadSavedState,
+} from "./game-core.js";
 
 const STORAGE_KEYS = {
-  settings: "ponpoko-settings-v1",
-  progress: "ponpoko-progress-v1",
+  settings: "ponpoko-adventure-settings-v2",
+  progress: "ponpoko-adventure-progress-v2",
 };
 
-const defaultSettings = {
-  sound: true,
-  voice: true,
-  reduceMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-};
+const saved = loadSavedState(
+  localStorage.getItem(STORAGE_KEYS.settings),
+  localStorage.getItem(STORAGE_KEYS.progress),
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+);
 
 const state = {
   screen: "home",
-  mode: "color",
+  settings: saved.settings,
+  progress: saved.progress,
+  activities: [],
+  activityIndex: 0,
   roundIndex: 0,
-  currentRound: null,
-  count: 0,
-  locked: false,
+  round: null,
+  collected: 0,
+  busy: false,
   timer: null,
+  actorX: 0,
   audioContext: null,
-  settings: loadJson(STORAGE_KEYS.settings, defaultSettings),
-  progress: loadProgress(localStorage.getItem(STORAGE_KEYS.progress)),
+  homePoseTimer: null,
 };
 
 const elements = {
+  app: document.querySelector("#app"),
   screens: [...document.querySelectorAll(".screen")],
-  modeButtons: [...document.querySelectorAll("[data-mode]")],
-  homeButton: document.querySelector("#home-button"),
+  startButton: document.querySelector("#start-button"),
+  homeTanuki: document.querySelector("#home-tanuki"),
+  adultButtons: [document.querySelector("#adult-button"), document.querySelector("#game-adult-button")],
+  gameHomeButton: document.querySelector("#game-home-button"),
+  activityLayer: document.querySelector("#activity-layer"),
+  actor: document.querySelector("#tanuki-actor"),
+  gestureHint: document.querySelector("#gesture-hint"),
+  particleLayer: document.querySelector("#particle-layer"),
+  progress: document.querySelector("#journey-progress"),
+  curtain: document.querySelector("#activity-curtain"),
+  curtainIcon: document.querySelector("#curtain-icon"),
+  curtainTitle: document.querySelector("#curtain-title"),
+  replayButton: document.querySelector("#replay-button"),
   finishHomeButton: document.querySelector("#finish-home-button"),
-  playAgainButton: document.querySelector("#play-again-button"),
-  repeatButton: document.querySelector("#repeat-button"),
-  homeSoundButton: document.querySelector("#home-sound-button"),
-  gamePrompt: document.querySelector("#game-prompt"),
-  gameHelper: document.querySelector("#game-helper"),
-  gameKicker: document.querySelector("#game-kicker"),
-  playStage: document.querySelector("#play-stage"),
-  roundProgress: document.querySelector("#round-progress"),
-  feedback: document.querySelector("#feedback-pill"),
-  burstLayer: document.querySelector("#burst-layer"),
-  leafCount: document.querySelector("#leaf-count"),
-  parentButton: document.querySelector("#parent-button"),
+  finishConfetti: document.querySelector("#finish-confetti"),
   parentDialog: document.querySelector("#parent-dialog"),
   dialogClose: document.querySelector("#dialog-close"),
   parentGate: document.querySelector("#parent-gate"),
   parentSettings: document.querySelector("#parent-settings"),
+  gateButtons: [...document.querySelectorAll("[data-gate]")],
   gateFeedback: document.querySelector("#gate-feedback"),
-  gateAnswers: [...document.querySelectorAll("[data-gate-answer]")],
   soundSetting: document.querySelector("#sound-setting"),
-  voiceSetting: document.querySelector("#voice-setting"),
   motionSetting: document.querySelector("#motion-setting"),
-  totalCorrect: document.querySelector("#total-correct"),
+  activitySettings: [...document.querySelectorAll('input[name="activity"]')],
+  sessionCount: document.querySelector("#session-count"),
   resetButton: document.querySelector("#reset-button"),
 };
 
-function loadJson(key, fallback) {
-  try {
-    return { ...fallback, ...JSON.parse(localStorage.getItem(key)) };
-  } catch {
-    return { ...fallback };
-  }
-}
+const ACTIVITY_META = {
+  color: { title: "いろを あつめよう", icon: "●", className: "activity-color" },
+  shape: { title: "かたちを はこぼう", icon: "◆", className: "activity-shape" },
+  count: { title: "どんぐり ぽとん", icon: "♣", className: "activity-count" },
+};
 
-function saveSettings() {
-  localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(state.settings));
-  document.documentElement.classList.toggle("reduce-motion", state.settings.reduceMotion);
-  syncSettingsUi();
-}
+const COLOR_POSITIONS = [
+  [13, 34], [39, 31], [70, 34], [19, 58], [54, 54], [80, 59],
+];
 
-function saveProgress() {
-  localStorage.setItem(STORAGE_KEYS.progress, JSON.stringify(state.progress));
-  syncProgressUi();
-}
-
-function syncSettingsUi() {
-  elements.soundSetting.checked = state.settings.sound;
-  elements.voiceSetting.checked = state.settings.voice;
-  elements.motionSetting.checked = state.settings.reduceMotion;
-  elements.homeSoundButton.classList.toggle("is-muted", !state.settings.sound);
-  elements.homeSoundButton.querySelector(".sound-icon").textContent = state.settings.sound ? "♪" : "×";
-  elements.homeSoundButton.setAttribute("aria-label", state.settings.sound ? "音を切る" : "音をつける");
-}
-
-function syncProgressUi() {
-  elements.leafCount.textContent = state.progress.leaves > 99 ? "99+" : String(state.progress.leaves);
-  elements.totalCorrect.textContent = `${state.progress.totalCorrect} 回`;
-}
+const COUNT_POSITIONS = {
+  1: [[20, 38]],
+  2: [[16, 35], [74, 43]],
+  3: [[13, 31], [47, 20], [79, 42]],
+};
 
 function showScreen(name) {
   state.screen = name;
+  elements.app.dataset.screen = name;
   elements.screens.forEach((screen) => screen.classList.toggle("is-active", screen.id === `${name}-screen`));
-  document.body.dataset.screen = name;
   window.scrollTo(0, 0);
 }
 
-function startMode(mode) {
-  clearTimeout(state.timer);
-  state.mode = mode;
-  state.roundIndex = 0;
-  state.locked = false;
-  ensureAudio();
-  tapSound();
-  showScreen("game");
-  renderRound();
+function setPose(element, pose) {
+  [...element.classList].filter((className) => className.startsWith("pose-")).forEach((className) => element.classList.remove(className));
+  element.classList.add(`pose-${pose}`);
 }
 
-function renderProgress() {
-  elements.roundProgress.replaceChildren();
-  for (let index = 0; index < SESSION_LENGTH; index += 1) {
-    const dot = document.createElement("span");
-    dot.className = "progress-dot";
-    if (index < state.roundIndex) dot.classList.add("is-done");
-    if (index === state.roundIndex) dot.classList.add("is-current");
-    dot.setAttribute("aria-hidden", "true");
-    elements.roundProgress.append(dot);
-  }
-  elements.roundProgress.setAttribute("aria-label", `${SESSION_LENGTH}もん中 ${state.roundIndex + 1}もん目`);
+function setActorPose(pose) {
+  setPose(elements.actor, pose);
+  elements.actor.classList.toggle("is-jumping", pose === "jump");
+}
+
+function startHomeAnimation() {
+  clearInterval(state.homePoseTimer);
+  let jumping = false;
+  state.homePoseTimer = window.setInterval(() => {
+    if (state.screen !== "home" || state.settings.reduceMotion) return;
+    jumping = !jumping;
+    setPose(elements.homeTanuki, jumping ? "jump" : "wave");
+  }, 1850);
+}
+
+function startSession() {
+  clearTimeout(state.timer);
+  clearInterval(state.homePoseTimer);
+  ensureAudio();
+  playSound("start");
+  state.activities = getActivityOrder(state.settings.activity);
+  state.activityIndex = 0;
+  state.roundIndex = 0;
+  state.actorX = 0;
+  state.busy = false;
+  showScreen("game");
+  updateJourneyProgress();
+  beginActivity();
+}
+
+function beginActivity() {
+  const activity = state.activities[state.activityIndex];
+  const meta = ACTIVITY_META[activity];
+  document.body.classList.remove("activity-color", "activity-shape", "activity-count");
+  document.body.classList.add(meta.className);
+  elements.curtainIcon.textContent = meta.icon;
+  elements.curtainTitle.textContent = meta.title;
+  elements.curtain.hidden = false;
+  elements.curtain.classList.remove("is-leaving");
+  setActorPose("run");
+  state.actorX = -window.innerWidth * 0.28;
+  updateActorPosition();
+  playSound("whoosh");
+
+  requestAnimationFrame(() => {
+    state.actorX = window.innerWidth * 0.25;
+    updateActorPosition();
+  });
+
+  state.timer = window.setTimeout(() => {
+    elements.curtain.classList.add("is-leaving");
+    state.timer = window.setTimeout(() => {
+      elements.curtain.hidden = true;
+      state.actorX = 0;
+      updateActorPosition();
+      renderRound();
+    }, state.settings.reduceMotion ? 80 : 430);
+  }, state.settings.reduceMotion ? 320 : 1150);
 }
 
 function renderRound() {
-  state.locked = false;
-  state.count = 0;
-  state.currentRound = createRound(state.mode, state.roundIndex);
-  elements.feedback.textContent = "";
-  elements.feedback.className = "feedback-pill";
-  elements.gamePrompt.textContent = state.currentRound.prompt;
-  elements.gameHelper.textContent = state.currentRound.helper;
-  elements.gameKicker.textContent = state.currentRound.mode === "count" ? "たぬきさん、おなかが ぺこぺこ" : "たぬきさんからの おねがい";
-  renderProgress();
+  state.busy = false;
+  state.collected = 0;
+  const activity = state.activities[state.activityIndex];
+  state.round = createRound(activity, state.roundIndex);
+  elements.activityLayer.replaceChildren();
+  elements.gestureHint.classList.remove("is-visible", "is-dragging");
+  updateJourneyProgress();
+  if (activity === "color") renderColorRound();
+  if (activity === "shape") renderShapeRound();
+  if (activity === "count") renderCountRound();
+}
 
-  if (state.currentRound.mode === "color") renderColorRound();
-  if (state.currentRound.mode === "shape") renderShapeRound();
-  if (state.currentRound.mode === "count") renderCountRound();
+function updateJourneyProgress() {
+  elements.progress.replaceChildren();
+  state.activities.forEach((activity, index) => {
+    const seed = document.createElement("span");
+    seed.className = "journey-seed";
+    if (index < state.activityIndex) seed.classList.add("is-grown");
+    if (index === state.activityIndex && state.screen === "game") seed.classList.add("is-current");
+    seed.innerHTML = `<i></i>`;
+    seed.setAttribute("aria-hidden", "true");
+    elements.progress.append(seed);
+  });
+  const current = Math.min(state.activityIndex + 1, Math.max(1, state.activities.length));
+  elements.progress.setAttribute("aria-label", `${state.activities.length}つ中${current}つ目の遊び`);
+}
 
-  window.setTimeout(() => speak(state.currentRound.prompt), 180);
+function addRoundPips(container, completed = 0) {
+  const pips = document.createElement("div");
+  pips.className = "round-pips";
+  for (let index = 0; index < ROUNDS_PER_ACTIVITY; index += 1) {
+    const pip = document.createElement("i");
+    if (index < completed) pip.classList.add("is-filled");
+    pips.append(pip);
+  }
+  container.append(pips);
+  return pips;
 }
 
 function renderColorRound() {
-  const round = state.currentRound;
-  const target = document.createElement("div");
-  target.className = "target-card color-target";
-  target.innerHTML = `<span class="target-label">おなじ いろ</span><span class="target-swatch" style="--swatch:${round.target.value}; --swatch-dark:${round.target.dark}"></span>`;
+  setActorPose("basket");
+  state.actorX = 0;
+  updateActorPosition();
+  const layer = document.createElement("div");
+  layer.className = "color-world";
 
-  const choices = document.createElement("div");
-  choices.className = "choice-row color-choices";
-  round.options.forEach((color) => {
+  const goal = document.createElement("div");
+  goal.className = "color-goal";
+  goal.style.setProperty("--target", state.round.target.value);
+  goal.style.setProperty("--target-shadow", state.round.target.shadow);
+  goal.innerHTML = `<span class="goal-color" aria-hidden="true"><i></i></span><div class="goal-slots">${Array.from({ length: 3 }, () => "<i></i>").join("")}</div>`;
+  layer.append(goal);
+  addRoundPips(layer, state.roundIndex);
+
+  const targetButtons = [];
+  state.round.items.forEach((item, index) => {
     const button = document.createElement("button");
+    const [left, top] = COLOR_POSITIONS[index];
     button.type = "button";
-    button.className = "answer-button color-answer";
-    button.dataset.answer = color.id;
-    button.setAttribute("aria-label", `${color.label}のきのみ`);
-    button.style.setProperty("--answer-color", color.value);
-    button.style.setProperty("--answer-dark", color.dark);
-    button.innerHTML = `<span class="berry" aria-hidden="true"><i></i></span><span>${color.label}</span>`;
-    button.addEventListener("click", () => handleChoice(button, color.id));
-    choices.append(button);
+    button.className = "berry-button";
+    button.style.setProperty("--left", `${left}%`);
+    button.style.setProperty("--top", `${top}%`);
+    button.style.setProperty("--berry", item.color.value);
+    button.style.setProperty("--berry-shadow", item.color.shadow);
+    button.setAttribute("aria-label", item.isTarget ? "かごと同じ色の木の実" : "ちがう色の木の実");
+    button.innerHTML = `<span class="berry-art" aria-hidden="true"><i></i></span>`;
+    button.addEventListener("click", () => chooseBerry(button, item));
+    layer.append(button);
+    if (item.isTarget) targetButtons.push(button);
   });
 
-  elements.playStage.replaceChildren(target, choices);
+  elements.activityLayer.append(layer);
+  if (state.roundIndex === 0) showTapHint(targetButtons[0]);
 }
 
-function renderShapeRound() {
-  const round = state.currentRound;
-  const target = document.createElement("div");
-  target.className = "target-card shape-target";
-  target.innerHTML = `<span class="target-label">おなじ かたち</span><span class="shape shape-${round.target.id} target-shape" aria-hidden="true"></span>`;
-
-  const choices = document.createElement("div");
-  choices.className = "choice-row shape-choices";
-  round.options.forEach((shape) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "answer-button shape-answer";
-    button.dataset.answer = shape.id;
-    button.setAttribute("aria-label", shape.label);
-    button.innerHTML = `<span class="shape shape-${shape.id}" aria-hidden="true"></span><span>${shape.label}</span>`;
-    button.addEventListener("click", () => handleChoice(button, shape.id));
-    choices.append(button);
-  });
-
-  elements.playStage.replaceChildren(target, choices);
-}
-
-function renderCountRound() {
-  const round = state.currentRound;
-  const scene = document.createElement("div");
-  scene.className = "count-scene";
-  scene.innerHTML = `
-    <div class="count-character" aria-hidden="true"></div>
-    <div class="count-board">
-      <span class="target-label">${round.target}こ ちょうだい</span>
-      <div class="count-number">${round.target}</div>
-      <div class="count-dots">${Array.from({ length: round.target }, () => "<i></i>").join("")}</div>
-    </div>
-    <div class="plate" aria-label="どんぐりのおさら"><div class="plate-acorns" id="plate-acorns"></div></div>
-  `;
-
-  const tray = document.createElement("div");
-  tray.className = "acorn-tray";
-  tray.setAttribute("aria-label", "どんぐりを選ぶ");
-  for (let index = 0; index < 3; index += 1) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "acorn-button";
-    button.setAttribute("aria-label", "どんぐりをひとつあげる");
-    button.innerHTML = `<span class="acorn" aria-hidden="true"><i></i></span>`;
-    button.addEventListener("click", () => handleCount(button));
-    tray.append(button);
-  }
-
-  elements.playStage.replaceChildren(scene, tray);
-}
-
-function handleChoice(button, answer) {
-  if (state.locked) return;
+function chooseBerry(button, item) {
+  hideHint();
   ensureAudio();
-  if (isCorrect(state.currentRound, answer)) {
-    button.classList.add("is-correct");
-    completeRound("そう！ ぴったり！");
+  if (button.disabled) return;
+  if (!item.isTarget) {
+    button.classList.remove("is-wiggling");
+    void button.offsetWidth;
+    button.classList.add("is-wiggling");
+    document.querySelector(".color-goal")?.classList.add("is-calling");
+    window.setTimeout(() => document.querySelector(".color-goal")?.classList.remove("is-calling"), 480);
+    setActorPose("reach");
+    playSound("boop");
+    window.setTimeout(() => setActorPose("basket"), 420);
     return;
   }
 
-  button.classList.remove("try-again");
-  void button.offsetWidth;
-  button.classList.add("try-again");
-  elements.feedback.textContent = "もういっかい みてみよう";
-  elements.feedback.className = "feedback-pill is-hint";
-  softSound();
-}
-
-function handleCount(button) {
-  if (state.locked || button.disabled) return;
-  ensureAudio();
   button.disabled = true;
-  button.classList.add("is-used");
-  state.count = addCount(state.count, state.currentRound.target);
-
-  const plateAcorns = document.querySelector("#plate-acorns");
-  const acorn = document.createElement("span");
-  acorn.className = "mini-acorn";
-  acorn.setAttribute("aria-hidden", "true");
-  plateAcorns.append(acorn);
-  countSound(state.count);
-  speak(String(state.count));
-
-  elements.feedback.textContent = `${state.count}こ`;
-  elements.feedback.className = "feedback-pill is-counting";
-  if (isCorrect(state.currentRound, state.count)) {
-    document.querySelectorAll(".acorn-button").forEach((acornButton) => {
-      acornButton.disabled = true;
+  state.busy = true;
+  moveActorToward(button, "run");
+  playSound("dash");
+  window.setTimeout(() => {
+    setActorPose("basket");
+    flyToActor(button, () => {
+      state.collected += 1;
+      const slots = [...document.querySelectorAll(".goal-slots i")];
+      slots[state.collected - 1]?.classList.add("is-filled");
+      playSound("collect", state.collected);
+      burstAtElement(button, item.color.value, 9);
+      state.busy = false;
+      if (state.collected >= state.round.targetCount) completeRound();
     });
-    state.timer = window.setTimeout(() => completeRound("じょうずに かぞえたね！"), 360);
-  }
+  }, state.settings.reduceMotion ? 60 : 300);
 }
 
-function completeRound(message) {
-  if (state.locked) return;
-  state.locked = true;
-  state.progress.totalCorrect += 1;
-  state.progress.leaves += 1;
-  saveProgress();
-  elements.feedback.textContent = message;
-  elements.feedback.className = "feedback-pill is-success";
-  successSound();
-  speak(message);
-  createBurst();
+function renderShapeRound() {
+  setActorPose("wave");
+  state.actorX = -window.innerWidth * 0.16;
+  updateActorPosition();
+  const layer = document.createElement("div");
+  layer.className = "shape-world";
 
+  const target = document.createElement("div");
+  target.className = `shape-target shape-${state.round.target}`;
+  target.dataset.shapeTarget = state.round.target;
+  target.setAttribute("aria-label", `${state.round.target}の形の穴`);
+  target.innerHTML = `<span></span>`;
+  layer.append(target);
+  addRoundPips(layer, state.roundIndex);
+
+  const optionPositions = [18, 50, 82];
+  let correctButton;
+  state.round.options.forEach((option, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `shape-piece shape-${option.id}`;
+    button.dataset.shape = option.id;
+    button.dataset.originalLeft = String(optionPositions[index]);
+    button.style.setProperty("--left", `${optionPositions[index]}%`);
+    button.setAttribute("aria-label", `${option.id}の形を運ぶ`);
+    button.innerHTML = `<span aria-hidden="true"></span>`;
+    installShapeDrag(button, option.isTarget);
+    layer.append(button);
+    if (option.isTarget) correctButton = button;
+  });
+
+  elements.activityLayer.append(layer);
+  if (state.roundIndex === 0) showDragHint(correctButton, target);
+}
+
+function installShapeDrag(button, isTarget) {
+  let startX = 0;
+  let startY = 0;
+  let deltaX = 0;
+  let deltaY = 0;
+  let moved = false;
+
+  button.addEventListener("pointerdown", (event) => {
+    if (state.busy) return;
+    hideHint();
+    startX = event.clientX;
+    startY = event.clientY;
+    deltaX = 0;
+    deltaY = 0;
+    moved = false;
+    button.setPointerCapture(event.pointerId);
+    button.classList.add("is-held");
+    setActorPose("push");
+    moveActorToClientX(event.clientX - 80);
+    playSound("pickup");
+  });
+
+  button.addEventListener("pointermove", (event) => {
+    if (!button.hasPointerCapture(event.pointerId)) return;
+    deltaX = event.clientX - startX;
+    deltaY = event.clientY - startY;
+    moved ||= Math.hypot(deltaX, deltaY) > 10;
+    button.style.setProperty("--drag-x", `${deltaX}px`);
+    button.style.setProperty("--drag-y", `${deltaY}px`);
+    moveActorToClientX(event.clientX - 90);
+  });
+
+  button.addEventListener("pointerup", (event) => {
+    if (!button.hasPointerCapture(event.pointerId)) return;
+    button.releasePointerCapture(event.pointerId);
+    button.classList.remove("is-held");
+    const target = document.querySelector(".shape-target");
+    const buttonRect = button.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const centerInside = buttonRect.left + buttonRect.width / 2 > targetRect.left
+      && buttonRect.left + buttonRect.width / 2 < targetRect.right
+      && buttonRect.top + buttonRect.height / 2 > targetRect.top
+      && buttonRect.top + buttonRect.height / 2 < targetRect.bottom;
+    if (isTarget && (!moved || centerInside)) {
+      snapShapeIntoTarget(button, target);
+    } else {
+      returnShape(button, isTarget && moved);
+    }
+  });
+
+  button.addEventListener("pointercancel", () => returnShape(button, false));
+}
+
+function snapShapeIntoTarget(button, target) {
+  if (state.busy) return;
+  state.busy = true;
+  const buttonRect = button.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const currentX = Number.parseFloat(getComputedStyle(button).getPropertyValue("--drag-x")) || 0;
+  const currentY = Number.parseFloat(getComputedStyle(button).getPropertyValue("--drag-y")) || 0;
+  const targetX = currentX + targetRect.left + targetRect.width / 2 - (buttonRect.left + buttonRect.width / 2);
+  const targetY = currentY + targetRect.top + targetRect.height / 2 - (buttonRect.top + buttonRect.height / 2);
+  button.classList.add("is-snapping");
+  button.style.setProperty("--drag-x", `${targetX}px`);
+  button.style.setProperty("--drag-y", `${targetY}px`);
+  moveActorToClientX(targetRect.left + targetRect.width / 2 - 100);
+  setActorPose("push");
+  playSound("slide");
+
+  window.setTimeout(() => {
+    button.classList.add("is-placed");
+    target.classList.add("is-filled");
+    setActorPose("jump");
+    playSound("shapeDrop");
+    burstAtElement(target, "#f6c744", 14);
+    completeRound();
+  }, state.settings.reduceMotion ? 80 : 500);
+}
+
+function returnShape(button, wasCorrectShape) {
+  button.classList.add("is-returning");
+  button.style.setProperty("--drag-x", "0px");
+  button.style.setProperty("--drag-y", "0px");
+  setActorPose(wasCorrectShape ? "reach" : "wave");
+  playSound("boop");
+  window.setTimeout(() => button.classList.remove("is-returning"), 380);
+}
+
+function renderCountRound() {
+  setActorPose("basket");
+  state.actorX = 0;
+  updateActorPosition();
+  const layer = document.createElement("div");
+  layer.className = "count-world";
+
+  const slots = document.createElement("div");
+  slots.className = "acorn-goal";
+  slots.innerHTML = Array.from({ length: state.round.target }, () => `<i><span></span></i>`).join("");
+  layer.append(slots);
+  addRoundPips(layer, state.roundIndex);
+
+  const buttons = [];
+  state.round.items.forEach((item, index) => {
+    const [left, top] = COUNT_POSITIONS[state.round.target][index];
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "acorn-piece";
+    button.style.setProperty("--left", `${left}%`);
+    button.style.setProperty("--top", `${top}%`);
+    button.setAttribute("aria-label", "どんぐりをかごに入れる");
+    button.innerHTML = `<span class="acorn-art" aria-hidden="true"><i></i></span>`;
+    button.addEventListener("click", () => collectAcorn(button));
+    layer.append(button);
+    buttons.push(button);
+  });
+
+  elements.activityLayer.append(layer);
+  if (state.roundIndex === 0) showTapHint(buttons[0], true);
+}
+
+function collectAcorn(button) {
+  if (state.busy || button.disabled) return;
+  hideHint();
+  ensureAudio();
+  state.busy = true;
+  button.disabled = true;
+  moveActorToward(button, "run");
+  playSound("dash");
+  window.setTimeout(() => {
+    setActorPose("reach");
+    const slots = [...document.querySelectorAll(".acorn-goal > i")];
+    const slot = slots[state.collected];
+    flyToElement(button, slot, () => {
+      slot.classList.add("is-filled");
+      state.collected += 1;
+      playSound("count", state.collected);
+      burstAtElement(slot, "#d89343", 8);
+      state.busy = false;
+      setActorPose("basket");
+      if (state.collected >= state.round.target) completeRound();
+    });
+  }, state.settings.reduceMotion ? 60 : 290);
+}
+
+function completeRound() {
+  state.busy = true;
+  setActorPose("jump");
+  playSound("success");
+  createCelebrationBurst();
+  const next = advanceRound(state.activityIndex, state.roundIndex, state.activities.length);
   state.timer = window.setTimeout(() => {
-    state.roundIndex += 1;
-    if (state.roundIndex >= SESSION_LENGTH) finishSession();
-    else renderRound();
-  }, state.settings.reduceMotion ? 650 : 1250);
+    if (next.sessionComplete) {
+      finishSession();
+      return;
+    }
+    state.activityIndex = next.activityIndex;
+    state.roundIndex = next.roundIndex;
+    if (next.activityComplete) {
+      updateJourneyProgress();
+      beginActivity();
+    } else {
+      renderRound();
+    }
+  }, state.settings.reduceMotion ? 480 : 1050);
 }
 
 function finishSession() {
+  state.progress.sessions += 1;
+  saveProgress();
   showScreen("finish");
-  finishSound();
-  speak("できたね！ ぽんぽこ ぽーん！");
+  createFinishConfetti();
+  playSound("finish");
 }
 
 function returnHome() {
   clearTimeout(state.timer);
-  state.locked = false;
-  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  state.busy = false;
+  elements.parentDialog.close();
   showScreen("home");
+  setPose(elements.homeTanuki, "wave");
+  startHomeAnimation();
+}
+
+function updateActorPosition() {
+  elements.actor.style.setProperty("--actor-x", `${state.actorX}px`);
+}
+
+function moveActorToward(element, pose = "run") {
+  const rect = element.getBoundingClientRect();
+  moveActorToClientX(rect.left + rect.width / 2);
+  setActorPose(pose);
+  elements.actor.classList.toggle("facing-left", state.actorX < 0);
+}
+
+function moveActorToClientX(clientX) {
+  const max = window.innerWidth * 0.34;
+  state.actorX = clamp(clientX - window.innerWidth / 2, -max, max);
+  updateActorPosition();
+  elements.actor.classList.toggle("facing-left", state.actorX < 0);
+}
+
+function flyToActor(element, onFinish) {
+  const actorRect = elements.actor.getBoundingClientRect();
+  flyToPoint(element, actorRect.left + actorRect.width * 0.51, actorRect.top + actorRect.height * 0.65, onFinish);
+}
+
+function flyToElement(element, target, onFinish) {
+  const rect = target.getBoundingClientRect();
+  flyToPoint(element, rect.left + rect.width / 2, rect.top + rect.height / 2, onFinish);
+}
+
+function flyToPoint(element, targetX, targetY, onFinish) {
+  const rect = element.getBoundingClientRect();
+  const dx = targetX - (rect.left + rect.width / 2);
+  const dy = targetY - (rect.top + rect.height / 2);
+  const animation = element.animate(
+    [
+      { transform: "translate(0, 0) rotate(0) scale(1)", opacity: 1, offset: 0 },
+      { transform: `translate(${dx * 0.48}px, ${dy * 0.25 - 80}px) rotate(160deg) scale(0.8)`, opacity: 1, offset: 0.5 },
+      { transform: `translate(${dx}px, ${dy}px) rotate(360deg) scale(0.18)`, opacity: 0, offset: 1 },
+    ],
+    { duration: state.settings.reduceMotion ? 120 : 560, easing: "cubic-bezier(.2,.75,.25,1)", fill: "forwards" },
+  );
+  animation.addEventListener("finish", () => {
+    element.style.visibility = "hidden";
+    onFinish();
+  }, { once: true });
+}
+
+function showTapHint(target, pointUp = false) {
+  if (!target || state.settings.reduceMotion) return;
+  const rect = target.getBoundingClientRect();
+  elements.gestureHint.style.setProperty("--hint-x", `${rect.left + rect.width / 2}px`);
+  elements.gestureHint.style.setProperty("--hint-y", `${rect.top + rect.height / 2}px`);
+  elements.gestureHint.classList.toggle("points-up", pointUp);
+  state.timer = window.setTimeout(() => elements.gestureHint.classList.add("is-visible"), 600);
+}
+
+function showDragHint(source, target) {
+  if (!source || !target || state.settings.reduceMotion) return;
+  const sourceRect = source.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  elements.gestureHint.style.setProperty("--hint-x", `${sourceRect.left + sourceRect.width / 2}px`);
+  elements.gestureHint.style.setProperty("--hint-y", `${sourceRect.top + sourceRect.height / 2}px`);
+  elements.gestureHint.style.setProperty("--hint-to-x", `${targetRect.left - sourceRect.left + (targetRect.width - sourceRect.width) / 2}px`);
+  elements.gestureHint.style.setProperty("--hint-to-y", `${targetRect.top - sourceRect.top + (targetRect.height - sourceRect.height) / 2}px`);
+  elements.gestureHint.classList.add("is-dragging");
+  state.timer = window.setTimeout(() => elements.gestureHint.classList.add("is-visible"), 650);
+}
+
+function hideHint() {
+  clearTimeout(state.timer);
+  elements.gestureHint.classList.remove("is-visible", "is-dragging", "points-up");
+}
+
+function burstAtElement(element, color, amount) {
+  if (state.settings.reduceMotion) return;
+  const rect = element.getBoundingClientRect();
+  for (let index = 0; index < amount; index += 1) {
+    const particle = document.createElement("i");
+    const angle = (Math.PI * 2 * index) / amount;
+    particle.className = "pop-particle";
+    particle.style.left = `${rect.left + rect.width / 2}px`;
+    particle.style.top = `${rect.top + rect.height / 2}px`;
+    particle.style.setProperty("--color", color);
+    particle.style.setProperty("--px", `${Math.cos(angle) * (45 + (index % 3) * 20)}px`);
+    particle.style.setProperty("--py", `${Math.sin(angle) * (45 + (index % 2) * 25)}px`);
+    elements.particleLayer.append(particle);
+    particle.addEventListener("animationend", () => particle.remove(), { once: true });
+  }
+}
+
+function createCelebrationBurst() {
+  const colors = ["#f36f63", "#f6c744", "#68b7df", "#6fb37d"];
+  for (let index = 0; index < 22; index += 1) {
+    const particle = document.createElement("i");
+    const angle = (Math.PI * 2 * index) / 22;
+    particle.className = "celebration-particle";
+    particle.style.setProperty("--color", colors[index % colors.length]);
+    particle.style.setProperty("--px", `${Math.cos(angle) * (120 + (index % 4) * 45)}px`);
+    particle.style.setProperty("--py", `${Math.sin(angle) * (95 + (index % 3) * 35)}px`);
+    elements.particleLayer.append(particle);
+    particle.addEventListener("animationend", () => particle.remove(), { once: true });
+  }
+}
+
+function createFinishConfetti() {
+  elements.finishConfetti.replaceChildren();
+  if (state.settings.reduceMotion) return;
+  const colors = ["#f36f63", "#f6c744", "#68b7df", "#6fb37d", "#fff3d0"];
+  for (let index = 0; index < 38; index += 1) {
+    const item = document.createElement("i");
+    item.style.left = `${(index * 29) % 100}%`;
+    item.style.setProperty("--delay", `${(index % 12) * 80}ms`);
+    item.style.setProperty("--drift", `${(index % 2 ? 1 : -1) * (20 + (index % 5) * 12)}px`);
+    item.style.setProperty("--color", colors[index % colors.length]);
+    elements.finishConfetti.append(item);
+  }
 }
 
 function ensureAudio() {
@@ -295,138 +607,131 @@ function ensureAudio() {
   return state.audioContext;
 }
 
-function tone(frequency, start, duration, volume = 0.05, type = "sine") {
+function tone(frequency, delay, duration, volume = 0.04, type = "sine", destination = null) {
   const context = ensureAudio();
   if (!context) return;
   const oscillator = context.createOscillator();
   const gain = context.createGain();
   oscillator.type = type;
-  oscillator.frequency.setValueAtTime(frequency, context.currentTime + start);
-  gain.gain.setValueAtTime(0.001, context.currentTime + start);
-  gain.gain.exponentialRampToValueAtTime(volume, context.currentTime + start + 0.02);
-  gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + start + duration);
-  oscillator.connect(gain).connect(context.destination);
-  oscillator.start(context.currentTime + start);
-  oscillator.stop(context.currentTime + start + duration + 0.04);
+  oscillator.frequency.setValueAtTime(frequency, context.currentTime + delay);
+  gain.gain.setValueAtTime(0.001, context.currentTime + delay);
+  gain.gain.exponentialRampToValueAtTime(volume, context.currentTime + delay + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + delay + duration);
+  oscillator.connect(gain).connect(destination || context.destination);
+  oscillator.start(context.currentTime + delay);
+  oscillator.stop(context.currentTime + delay + duration + 0.03);
 }
 
-function tapSound() {
-  tone(420, 0, 0.08, 0.025, "sine");
+function noise(delay = 0, duration = 0.12, volume = 0.02) {
+  const context = ensureAudio();
+  if (!context) return;
+  const frames = Math.floor(context.sampleRate * duration);
+  const buffer = context.createBuffer(1, frames, context.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let index = 0; index < frames; index += 1) data[index] = (Math.random() * 2 - 1) * (1 - index / frames);
+  const source = context.createBufferSource();
+  const gain = context.createGain();
+  source.buffer = buffer;
+  gain.gain.setValueAtTime(volume, context.currentTime + delay);
+  gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + delay + duration);
+  source.connect(gain).connect(context.destination);
+  source.start(context.currentTime + delay);
 }
 
-function softSound() {
-  tone(330, 0, 0.12, 0.025, "sine");
-  tone(390, 0.09, 0.13, 0.02, "sine");
-}
-
-function countSound(count) {
-  tone(360 + count * 75, 0, 0.18, 0.04, "sine");
-}
-
-function successSound() {
-  [523, 659, 784].forEach((frequency, index) => tone(frequency, index * 0.1, 0.28, 0.05, "sine"));
-}
-
-function finishSound() {
-  [392, 523, 659, 784].forEach((frequency, index) => tone(frequency, index * 0.12, 0.32, 0.055, "triangle"));
-}
-
-function speak(text) {
-  if (!state.settings.voice || !("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text.replaceAll("？", ""));
-  utterance.lang = "ja-JP";
-  utterance.rate = 0.82;
-  utterance.pitch = 1.12;
-  utterance.volume = 0.92;
-  const japaneseVoice = window.speechSynthesis.getVoices().find((voice) => voice.lang.startsWith("ja"));
-  if (japaneseVoice) utterance.voice = japaneseVoice;
-  window.speechSynthesis.speak(utterance);
-}
-
-function createBurst() {
-  if (state.settings.reduceMotion) return;
-  const symbols = ["●", "✦", "🍃", "✿", "★"];
-  elements.burstLayer.replaceChildren();
-  for (let index = 0; index < 18; index += 1) {
-    const particle = document.createElement("span");
-    particle.textContent = symbols[index % symbols.length];
-    particle.style.setProperty("--x", `${Math.cos((Math.PI * 2 * index) / 18) * (120 + (index % 3) * 35)}px`);
-    particle.style.setProperty("--y", `${Math.sin((Math.PI * 2 * index) / 18) * (90 + (index % 4) * 22)}px`);
-    particle.style.setProperty("--delay", `${(index % 4) * 24}ms`);
-    elements.burstLayer.append(particle);
-  }
-  window.setTimeout(() => elements.burstLayer.replaceChildren(), 1150);
+function playSound(name, step = 1) {
+  if (!state.settings.sound) return;
+  if (name === "start") [330, 440, 554].forEach((frequency, index) => tone(frequency, index * 0.07, 0.18, 0.035, "sine"));
+  if (name === "whoosh" || name === "dash") { noise(0, 0.16, 0.018); tone(240, 0, 0.13, 0.018, "triangle"); }
+  if (name === "boop") { tone(280, 0, 0.12, 0.03, "sine"); tone(360, 0.08, 0.09, 0.018, "sine"); }
+  if (name === "pickup") tone(410, 0, 0.1, 0.025, "triangle");
+  if (name === "slide") { noise(0, 0.25, 0.012); tone(350, 0, 0.22, 0.018, "sine"); }
+  if (name === "collect") { tone(480 + step * 70, 0, 0.18, 0.04, "sine"); tone(720 + step * 50, 0.08, 0.13, 0.025, "sine"); }
+  if (name === "count") tone(420 + step * 110, 0, 0.22, 0.045, "sine");
+  if (name === "shapeDrop") { tone(270, 0, 0.09, 0.04, "triangle"); tone(540, 0.08, 0.2, 0.04, "sine"); }
+  if (name === "success") [523, 659, 784].forEach((frequency, index) => tone(frequency, index * 0.08, 0.25, 0.04, "sine"));
+  if (name === "finish") [392, 523, 659, 784, 1046].forEach((frequency, index) => tone(frequency, index * 0.12, 0.34, 0.045, index % 2 ? "triangle" : "sine"));
 }
 
 function openParentDialog() {
   elements.parentGate.hidden = false;
   elements.parentSettings.hidden = true;
   elements.gateFeedback.textContent = "";
+  syncSettingsUi();
   elements.parentDialog.showModal();
 }
 
-function unlockParentSettings() {
+function unlockSettings() {
   elements.parentGate.hidden = true;
   elements.parentSettings.hidden = false;
-  syncProgressUi();
+  elements.sessionCount.textContent = `${state.progress.sessions}回`;
 }
 
-elements.modeButtons.forEach((button) => button.addEventListener("click", () => startMode(button.dataset.mode)));
-elements.homeButton.addEventListener("click", returnHome);
+function saveSettings() {
+  localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(state.settings));
+  document.documentElement.classList.toggle("reduce-motion", state.settings.reduceMotion);
+  syncSettingsUi();
+}
+
+function saveProgress() {
+  localStorage.setItem(STORAGE_KEYS.progress, JSON.stringify(state.progress));
+  elements.sessionCount.textContent = `${state.progress.sessions}回`;
+}
+
+function syncSettingsUi() {
+  elements.soundSetting.checked = state.settings.sound;
+  elements.motionSetting.checked = state.settings.reduceMotion;
+  elements.activitySettings.forEach((input) => { input.checked = input.value === state.settings.activity; });
+  elements.sessionCount.textContent = `${state.progress.sessions}回`;
+}
+
+elements.startButton.addEventListener("click", startSession);
+elements.replayButton.addEventListener("click", startSession);
+elements.gameHomeButton.addEventListener("click", returnHome);
 elements.finishHomeButton.addEventListener("click", returnHome);
-elements.playAgainButton.addEventListener("click", () => startMode(state.mode));
-elements.repeatButton.addEventListener("click", () => {
-  tapSound();
-  speak(state.currentRound?.prompt || "");
-});
-elements.homeSoundButton.addEventListener("click", () => {
-  state.settings.sound = !state.settings.sound;
-  saveSettings();
-  if (state.settings.sound) tapSound();
-});
-elements.parentButton.addEventListener("click", openParentDialog);
+elements.adultButtons.forEach((button) => button.addEventListener("click", openParentDialog));
 elements.dialogClose.addEventListener("click", () => elements.parentDialog.close());
-elements.parentDialog.addEventListener("click", (event) => {
-  if (event.target === elements.parentDialog) elements.parentDialog.close();
-});
-elements.gateAnswers.forEach((button) => {
-  button.addEventListener("click", () => {
-    if (button.dataset.gateAnswer === "4") unlockParentSettings();
-    else elements.gateFeedback.textContent = "もう一度お試しください";
-  });
-});
+elements.parentDialog.addEventListener("click", (event) => { if (event.target === elements.parentDialog) elements.parentDialog.close(); });
+elements.gateButtons.forEach((button) => button.addEventListener("click", () => {
+  if (button.dataset.gate === "5") unlockSettings();
+  else elements.gateFeedback.textContent = "もう一度お試しください";
+}));
 elements.soundSetting.addEventListener("change", (event) => {
   state.settings.sound = event.target.checked;
   saveSettings();
-  if (state.settings.sound) tapSound();
-});
-elements.voiceSetting.addEventListener("change", (event) => {
-  state.settings.voice = event.target.checked;
-  saveSettings();
+  if (state.settings.sound) playSound("collect", 1);
 });
 elements.motionSetting.addEventListener("change", (event) => {
   state.settings.reduceMotion = event.target.checked;
   saveSettings();
 });
+elements.activitySettings.forEach((input) => input.addEventListener("change", (event) => {
+  if (!event.target.checked) return;
+  state.settings.activity = event.target.value;
+  saveSettings();
+}));
 elements.resetButton.addEventListener("click", () => {
-  if (!window.confirm("遊んだ記録を0に戻しますか？")) return;
-  state.progress = { totalCorrect: 0, leaves: 0 };
+  if (!window.confirm("冒険の記録を0に戻しますか？")) return;
+  state.progress.sessions = 0;
   saveProgress();
 });
 
 document.addEventListener("contextmenu", (event) => {
   if (event.target.closest("button")) event.preventDefault();
 });
-
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden && "speechSynthesis" in window) window.speechSynthesis.cancel();
-});
+window.addEventListener("resize", () => { if (state.screen === "game") updateActorPosition(); });
 
 if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing || sessionStorage.getItem("ponpoko-sw-v2-reloaded")) return;
+    refreshing = true;
+    sessionStorage.setItem("ponpoko-sw-v2-reloaded", "1");
+    window.location.reload();
+  });
   window.addEventListener("load", () => navigator.serviceWorker.register("./service-worker.js").catch(() => {}));
 }
 
 saveSettings();
-syncProgressUi();
+saveProgress();
 showScreen("home");
+startHomeAnimation();

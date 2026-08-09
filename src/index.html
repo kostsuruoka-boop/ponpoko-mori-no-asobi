@@ -3,167 +3,135 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-    <meta name="theme-color" content="#f8f3e7" />
+    <meta name="theme-color" content="#bfe1d1" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="ぽんぽこもり" />
-    <meta
-      name="description"
-      content="小さなお子さま向けの、色・形・数をたぬきと一緒に楽しむ知育あそびです。"
-    />
+    <meta name="apple-mobile-web-app-title" content="ぽんぽこの森" />
+    <meta name="description" content="たぬきと走って、集めて、育てる。1〜2歳向けの知育あそび。" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
-    <title>ぽんぽこ もりの あそび</title>
+    <title>ぽんぽこ もりの だいぼうけん</title>
   </head>
   <body>
-    <main class="app-shell" id="app">
-      <section class="screen home-screen is-active" id="home-screen" aria-labelledby="app-title">
-        <header class="topbar home-topbar">
-          <div class="brand-mark" aria-hidden="true"><span>ぽ</span></div>
-          <div class="brand-copy">
-            <p class="eyebrow">たぬきと いっしょに</p>
-            <h1 id="app-title">ぽんぽこ もりの あそび</h1>
+    <main id="app" class="app" data-screen="home">
+      <section id="home-screen" class="screen home-screen is-active" aria-labelledby="app-title">
+        <div class="forest-sky" aria-hidden="true">
+          <span class="cloud cloud-one"></span><span class="cloud cloud-two"></span>
+          <span class="far-tree tree-one"></span><span class="far-tree tree-two"></span><span class="far-tree tree-three"></span>
+          <span class="home-leaf leaf-one">●</span><span class="home-leaf leaf-two">●</span><span class="home-leaf leaf-three">●</span>
+        </div>
+
+        <header class="home-header">
+          <div class="logo-lockup">
+            <span class="logo-leaf" aria-hidden="true">◆</span>
+            <div>
+              <p>たぬきと いっしょに</p>
+              <h1 id="app-title">ぽんぽこ もりの<br />だいぼうけん</h1>
+            </div>
           </div>
-          <button class="round-button parent-button" id="parent-button" type="button" aria-label="おとなの設定を開く">
+          <button class="adult-button" id="adult-button" type="button" aria-label="保護者メニューを開く">
             <span aria-hidden="true">⚙</span><small>おとな</small>
           </button>
         </header>
 
-        <div class="home-content">
-          <article class="hero-card" aria-label="手を振るたぬき">
-            <div class="hero-bubble">
-              <span>いっしょに</span>
-              <strong>あそぼ！</strong>
-            </div>
-            <div class="leaf-counter" id="leaf-counter" aria-live="polite">
-              <span aria-hidden="true">🍃</span>
-              <span id="leaf-count">0</span>
-            </div>
-          </article>
-
-          <section class="mode-panel" aria-labelledby="mode-title">
-            <div class="mode-heading">
-              <div>
-                <p class="eyebrow">きょうは なにする？</p>
-                <h2 id="mode-title">あそびを えらんでね</h2>
-              </div>
-              <button class="sound-button" id="home-sound-button" type="button" aria-label="音を切り替える">
-                <span class="sound-icon" aria-hidden="true">♪</span>
-              </button>
-            </div>
-
-            <div class="mode-grid">
-              <button class="mode-card mode-color" type="button" data-mode="color">
-                <span class="mode-art color-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                <span class="mode-copy"><strong>いろ</strong><small>おなじ いろは どれ？</small></span>
-                <span class="go-arrow" aria-hidden="true">›</span>
-              </button>
-              <button class="mode-card mode-shape" type="button" data-mode="shape">
-                <span class="mode-art shape-icons" aria-hidden="true"><i></i><i></i><i></i></span>
-                <span class="mode-copy"><strong>かたち</strong><small>ぴったりを さがそう</small></span>
-                <span class="go-arrow" aria-hidden="true">›</span>
-              </button>
-              <button class="mode-card mode-count" type="button" data-mode="count">
-                <span class="mode-art acorn-icons" aria-hidden="true">● ● ●</span>
-                <span class="mode-copy"><strong>かず</strong><small>どんぐりを かぞえよう</small></span>
-                <span class="go-arrow" aria-hidden="true">›</span>
-              </button>
-              <button class="mode-card mode-mix" type="button" data-mode="mix">
-                <span class="mode-art mix-icon" aria-hidden="true">★</span>
-                <span class="mode-copy"><strong>おまかせ</strong><small>3つ ぜんぶで あそぶ</small></span>
-                <span class="go-arrow" aria-hidden="true">›</span>
-              </button>
-            </div>
-          </section>
+        <div class="home-playground">
+          <button class="floating-toy toy-berry" tabindex="-1" aria-hidden="true"><i></i></button>
+          <button class="floating-toy toy-shape" tabindex="-1" aria-hidden="true"></button>
+          <button class="floating-toy toy-acorn" tabindex="-1" aria-hidden="true"><i></i></button>
+          <div class="home-tanuki tanuki-sprite pose-wave" id="home-tanuki" aria-label="手を振るたぬき"></div>
+          <div class="home-shadow" aria-hidden="true"></div>
+          <button class="start-button" id="start-button" type="button" aria-label="あそびをはじめる">
+            <span class="start-rings" aria-hidden="true"></span>
+            <span class="play-icon" aria-hidden="true">▶</span>
+            <strong>あそぶ</strong>
+          </button>
         </div>
       </section>
 
-      <section class="screen game-screen" id="game-screen" aria-labelledby="game-prompt">
-        <header class="topbar game-topbar">
-          <button class="round-button home-button" id="home-button" type="button" aria-label="はじめの画面にもどる">
-            <span aria-hidden="true">⌂</span><small>もどる</small>
-          </button>
-          <div class="round-progress" id="round-progress" aria-label="あそびの進みぐあい"></div>
-          <button class="round-button repeat-button" id="repeat-button" type="button" aria-label="もう一度きく">
-            <span aria-hidden="true">♪</span><small>もういちど</small>
-          </button>
+      <section id="game-screen" class="screen game-screen" aria-label="森の知育あそび">
+        <div id="game-backdrop" class="game-backdrop" aria-hidden="true">
+          <span class="sun-glow"></span>
+          <span class="hill hill-one"></span><span class="hill hill-two"></span>
+          <span class="game-tree game-tree-left"></span><span class="game-tree game-tree-right"></span>
+          <span class="ground-patch patch-one"></span><span class="ground-patch patch-two"></span>
+        </div>
+
+        <header class="game-hud">
+          <button class="hud-button" id="game-home-button" type="button" aria-label="はじめの画面にもどる"><span aria-hidden="true">⌂</span></button>
+          <div class="journey-progress" id="journey-progress" aria-label="冒険の進みぐあい"></div>
+          <button class="hud-button" id="game-adult-button" type="button" aria-label="保護者メニューを開く"><span aria-hidden="true">⚙</span></button>
         </header>
 
-        <section class="game-card">
-          <div class="prompt-row">
-            <div class="tanuki-avatar" aria-hidden="true"></div>
-            <div class="speech-card">
-              <p class="eyebrow" id="game-kicker">たぬきさんからの おねがい</p>
-              <h2 id="game-prompt">どれかな？</h2>
-              <p id="game-helper">ゆびで さわってね</p>
-            </div>
-          </div>
-          <div class="play-stage" id="play-stage" aria-live="polite"></div>
-          <div class="feedback-pill" id="feedback-pill" aria-live="assertive"></div>
-        </section>
-        <div class="burst-layer" id="burst-layer" aria-hidden="true"></div>
+        <div id="activity-layer" class="activity-layer"></div>
+        <div id="tanuki-actor" class="tanuki-actor tanuki-sprite pose-wave" aria-label="動くたぬき"></div>
+        <div id="gesture-hint" class="gesture-hint" aria-hidden="true"><span>●</span></div>
+        <div id="particle-layer" class="particle-layer" aria-hidden="true"></div>
+
+        <div id="activity-curtain" class="activity-curtain" aria-live="polite" hidden>
+          <span class="curtain-icon" id="curtain-icon" aria-hidden="true">●</span>
+          <strong id="curtain-title">いろあつめ</strong>
+          <div class="curtain-tanuki tanuki-sprite pose-run" aria-hidden="true"></div>
+        </div>
       </section>
 
-      <section class="screen finish-screen" id="finish-screen" aria-labelledby="finish-title">
-        <div class="finish-sky" aria-hidden="true"><span>✦</span><span>●</span><span>✿</span><span>★</span><span>●</span></div>
-        <div class="finish-card">
-          <div class="finish-tanuki" aria-hidden="true"></div>
-          <p class="eyebrow">ぽんぽこ ぽーん！</p>
-          <h2 id="finish-title">できたね！</h2>
-          <p>たぬきさんも うれしそう</p>
-          <div class="earned-leaves" aria-label="葉っぱを3枚もらいました"><span>🍃</span><span>🍃</span><span>🍃</span></div>
-          <div class="finish-actions">
-            <button class="primary-action" id="play-again-button" type="button"><span aria-hidden="true">↻</span> もういっかい</button>
-            <button class="secondary-action" id="finish-home-button" type="button">ほかの あそび</button>
-          </div>
+      <section id="finish-screen" class="screen finish-screen" aria-labelledby="finish-title">
+        <div class="finish-world" aria-hidden="true">
+          <span class="finish-sun"></span>
+          <div class="growing-tree"><i class="trunk"></i><i class="crown crown-one"></i><i class="crown crown-two"></i><i class="crown crown-three"></i><i class="fruit fruit-one"></i><i class="fruit fruit-two"></i><i class="fruit fruit-three"></i></div>
+          <span class="finish-flower flower-one"></span><span class="finish-flower flower-two"></span><span class="finish-flower flower-three"></span>
         </div>
+        <div class="finish-tanuki tanuki-sprite pose-jump" aria-hidden="true"></div>
+        <div class="finish-copy">
+          <p>ぽんぽこ ぽーん！</p>
+          <h2 id="finish-title">おおきく なったね！</h2>
+        </div>
+        <button class="replay-button" id="replay-button" type="button"><span aria-hidden="true">↻</span><strong>もういっかい</strong></button>
+        <button class="finish-home-button" id="finish-home-button" type="button">おうちへ</button>
+        <div id="finish-confetti" class="finish-confetti" aria-hidden="true"></div>
       </section>
     </main>
 
-    <dialog class="parent-dialog" id="parent-dialog" aria-labelledby="parent-title">
-      <div class="dialog-card">
+    <dialog id="parent-dialog" class="parent-dialog" aria-labelledby="parent-title">
+      <div class="dialog-surface">
         <button class="dialog-close" id="dialog-close" type="button" aria-label="閉じる">×</button>
         <section id="parent-gate">
-          <p class="eyebrow">おとなの方へ</p>
+          <p class="dialog-kicker">おとなの方へ</p>
           <h2 id="parent-title">保護者メニュー</h2>
-          <p>お子さまの誤操作を防ぐため、答えを選んでください。</p>
-          <p class="gate-question">3 ＋ 1 ＝ ?</p>
+          <p>誤操作を防ぐため、答えを選んでください。</p>
+          <div class="gate-question">2 ＋ 3 ＝ ?</div>
           <div class="gate-options">
-            <button type="button" data-gate-answer="3">3</button>
-            <button type="button" data-gate-answer="4">4</button>
-            <button type="button" data-gate-answer="5">5</button>
+            <button type="button" data-gate="4">4</button><button type="button" data-gate="5">5</button><button type="button" data-gate="6">6</button>
           </div>
-          <p class="gate-feedback" id="gate-feedback" aria-live="polite"></p>
+          <p id="gate-feedback" class="gate-feedback" aria-live="polite"></p>
         </section>
 
-        <section class="parent-settings" id="parent-settings" hidden>
-          <p class="eyebrow">おとなの方へ</p>
-          <h2>遊びやすさの設定</h2>
-          <div class="summary-card">
-            <span>これまでの正解</span><strong id="total-correct">0 回</strong>
-          </div>
+        <section id="parent-settings" class="parent-settings" hidden>
+          <p class="dialog-kicker">おとなの方へ</p>
+          <h2>遊びかたの設定</h2>
+          <div class="session-summary"><span>冒険できた回数</span><strong id="session-count">0回</strong></div>
           <label class="setting-row">
-            <span><strong>効果音</strong><small>正解音やタップ音を鳴らします</small></span>
-            <input type="checkbox" id="sound-setting" checked />
+            <span><strong>アクション音</strong><small>タップ・移動・成功時の効果音だけを鳴らします</small></span>
+            <input id="sound-setting" type="checkbox" checked />
           </label>
           <label class="setting-row">
-            <span><strong>声のガイド</strong><small>問題を日本語で読み上げます</small></span>
-            <input type="checkbox" id="voice-setting" checked />
+            <span><strong>動きをひかえめに</strong><small>大きな移動や紙吹雪を少なくします</small></span>
+            <input id="motion-setting" type="checkbox" />
           </label>
-          <label class="setting-row">
-            <span><strong>動きをひかえめに</strong><small>アニメーションを少なくします</small></span>
-            <input type="checkbox" id="motion-setting" />
-          </label>
+          <fieldset class="activity-setting">
+            <legend>スタートボタンで遊ぶ内容</legend>
+            <div class="activity-options">
+              <label><input type="radio" name="activity" value="all" checked /><span>ぜんぶ</span></label>
+              <label><input type="radio" name="activity" value="color" /><span>いろ</span></label>
+              <label><input type="radio" name="activity" value="shape" /><span>かたち</span></label>
+              <label><input type="radio" name="activity" value="count" /><span>かず</span></label>
+            </div>
+          </fieldset>
           <div class="parent-note">
-            <strong>おすすめは1回3〜5分</strong>
-            <p>「あかだね」「2こだね」と大人が声を添えると、ことばと数がつながりやすくなります。</p>
+            <strong>知育のねらい</strong>
+            <p>色の分類、形の照合、1〜3の一対一対応を、文字や音声指示なしで体験します。最初は一緒に指差し、慣れたらお子さまのペースで見守ってください。</p>
           </div>
-          <div class="install-note">
-            <strong>iPadのホーム画面に追加</strong>
-            <p>Safariの共有ボタンから「ホーム画面に追加」を選ぶと、アプリのように全画面で遊べます。</p>
-          </div>
-          <button class="reset-button" id="reset-button" type="button">遊んだ記録をリセット</button>
+          <button class="reset-button" id="reset-button" type="button">記録をリセット</button>
         </section>
       </div>
     </dialog>
