@@ -41,12 +41,10 @@ export const VEGETABLES = [
 
 export const FARM_ITEMS = FRUITS.concat(VEGETABLES);
 
-/* Each round mixes tall, low and buried places so the scene reads as a farm. */
-export const FARM_ROUNDS = [
-  { id: "orchard", ids: ["apple", "orange", "strawberry", "daikon", "carrot", "cabbage"] },
-  { id: "trellis", ids: ["grape", "peach", "cucumber", "eggplant", "edamame", "onion"] },
-  { id: "summer", ids: ["lemon", "banana", "cherry", "watermelon", "pumpkin", "sweet-potato"] },
-];
+/* The order every habitat is dealt out in. Rounds are built by walking these
+ * groups in turn, which is what keeps a randomly dealt board from turning into
+ * six identical trees. */
+export const FARM_HABITATS = ["tree", "soil", "bush", "trellis", "vine", "ground", "palm"];
 
 /* --------------------------------------------------------------- animals */
 /* `cry` is optional: only animals with an iconic Japanese onomatopoeia have one. */
@@ -66,14 +64,11 @@ export const ANIMALS = [
 ];
 
 /*
- * Silhouette rounds get harder by widening the choice row only.
- * Round 1 offers two very different shapes, round 3 offers four.
+ * Silhouette rounds get harder by widening the choice row only: two candidates
+ * in the first round, four in the last. Which animals appear is randomised per
+ * session; only this progression is fixed.
  */
-export const ANIMAL_ROUNDS = [
-  { id: "meadow", ids: ["dog", "cat", "pig", "bird"], choices: 2 },
-  { id: "savanna", ids: ["lion", "elephant", "monkey", "zebra"], choices: 3 },
-  { id: "forest", ids: ["panda", "giraffe", "hippo", "camel"], choices: 4 },
-];
+export const ANIMAL_CHOICE_PROGRESSION = [2, 3, 4];
 
 /* -------------------------------------------------------------- hiragana */
 /*

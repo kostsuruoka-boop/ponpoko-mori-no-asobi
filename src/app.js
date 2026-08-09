@@ -23,13 +23,13 @@ import {
   ROUNDS_PER_ACTIVITY,
 } from "./content.js";
 import {
+  advanceCurriculum,
   advanceRound,
   animalById,
-  createRound,
+  createSession,
   hintStage,
   literacyCatalog,
   loadSavedState,
-  nextCurriculumIndex,
   normalizeActivity,
   targetsPerRound,
 } from "./game-core.js";
@@ -91,6 +91,7 @@ const saved = loadSavedState(
 const state = {
   activity: "farm",
   roundIndex: 0,
+  session: null,
   round: null,
   stepIndex: 0,
   solved: 0,
@@ -868,9 +869,7 @@ function renderRound() {
   clearRuntime();
   state.stepIndex = 0;
   state.solved = 0;
-  state.round = createRound(state.activity, state.roundIndex, {
-    curriculumIndex: state.progress.curriculum[state.activity],
-  });
+  state.round = state.session.rounds[state.roundIndex];
   updateHud();
   if (state.activity === "farm") renderFarmRound();
   else if (state.activity === "animal") renderAnimalRound();
@@ -919,12 +918,28 @@ function advanceFromComplete() {
   renderRound();
 }
 
+/* Every literacy device walks its own random order of the chart. */
+function curriculumSeedFor(activity) {
+  if (activity !== "hiragana" && activity !== "alphabet") return 0;
+  if (!state.progress.curriculumSeed[activity]) {
+    state.progress.curriculumSeed[activity] = Math.floor(Math.random() * 0xfffffff) + 1;
+    saveProgress();
+  }
+  return state.progress.curriculumSeed[activity];
+}
+
 function startMode(activity) {
   clearRuntime();
   state.activity = normalizeActivity(activity);
   state.roundIndex = 0;
   state.sessionResults = [];
   state.sessionFound = {};
+  /* Built once per session so the farm can still promise all eighteen foods
+   * while dealing them out at random. */
+  state.session = createSession(state.activity, {
+    curriculumIndex: state.progress.curriculum[state.activity],
+    curriculumSeed: curriculumSeedFor(state.activity),
+  });
   document.body.className = document.body.className
     .split(" ")
     .filter(function (name) {
@@ -946,10 +961,13 @@ function finishSession() {
   state.progress.sessions += 1;
   state.progress.completed[activity] += 1;
   if (activity === "hiragana" || activity === "alphabet") {
-    state.progress.curriculum[activity] = nextCurriculumIndex(
+    const advanced = advanceCurriculum(
       activity,
       state.progress.curriculum[activity],
+      state.progress.curriculumSeed[activity],
     );
+    state.progress.curriculum[activity] = advanced.index;
+    state.progress.curriculumSeed[activity] = advanced.seed;
   }
   saveProgress();
   renderFinish(results);
@@ -1105,6 +1123,7 @@ function bindPermanentControls() {
       state.progress.completed[activity] = 0;
     });
     state.progress.curriculum = { hiragana: 0, alphabet: 0 };
+    state.progress.curriculumSeed = { hiragana: 0, alphabet: 0 };
     saveProgress();
     dom.sessionCount.textContent = "0回";
     audio.play("next");

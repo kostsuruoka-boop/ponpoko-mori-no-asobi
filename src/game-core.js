@@ -1,16 +1,16 @@
 /*
  * Pure game rules. No DOM, no timers, no storage — everything here is
- * deterministic given an injected `random`, so tests/game-core.test.mjs can
- * verify the whole curriculum without a browser.
+ * deterministic given an injected `random` or seed, so tests/game-core.test.mjs
+ * can verify the whole curriculum without a browser.
  */
 
 import {
   ACTIVITY_ORDER,
   ALPHABET,
   ANIMALS,
-  ANIMAL_ROUNDS,
+  ANIMAL_CHOICE_PROGRESSION,
+  FARM_HABITATS,
   FARM_ITEMS,
-  FARM_ROUNDS,
   HIRAGANA,
   ROUNDS_PER_ACTIVITY,
 } from "./content.js";
@@ -61,61 +61,146 @@ function safeParse(value) {
   }
 }
 
+/* ------------------------------------------------------------ randomness */
+/*
+ * A tiny seeded generator (mulberry32). Sessions should feel different every
+ * time, but the letter order also has to survive a reload and keep covering the
+ * whole chart, so it is derived from a seed that gets saved.
+ */
+export function seededRandom(seed) {
+  let state = (Number(seed) >>> 0) || 1;
+  return function () {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function nextSeed(seed) {
+  const generator = seededRandom(seed);
+  generator();
+  return Math.floor(generator() * 0xfffffff) + 1;
+}
+
 /* ------------------------------------------------------------------ farm */
 /*
- * Six growing places are laid out on a fixed 3x2 board. Slot order is stable so
- * the scene never reshuffles under the child's finger; only the request order
- * is randomised.
+ * Deal all eighteen foods across the three rounds.
+ *
+ * A plain shuffle would happily hand one board six trees, so each food goes to
+ * whichever round has the least of its growing place and the most space left.
+ * Placing the biggest groups first means trees, roots and bushes each land once
+ * per round before anything else is dealt, which is what guarantees every board
+ * mixes at least three growing places. Ties are broken at random, so the deal
+ * still differs every session.
  */
-export function createFarmRound(roundIndex, random) {
-  const authored = FARM_ROUNDS[modulo(roundIndex, FARM_ROUNDS.length)];
-  const items = authored.ids.map(function (id, index) {
-    const item = byId(FARM_ITEMS, id);
+function dealFarmItems(random) {
+  const groups = shuffle(FARM_HABITATS, random)
+    .map(function (habitat) {
+      return shuffle(
+        FARM_ITEMS.filter(function (item) {
+          return item.habitat === habitat;
+        }),
+        random,
+      );
+    })
+    .sort(function (left, right) {
+      return right.length - left.length;
+    });
+
+  const rounds = [];
+  const habitatCounts = [];
+  for (let index = 0; index < ROUNDS_PER_ACTIVITY; index += 1) {
+    rounds.push([]);
+    habitatCounts.push({});
+  }
+
+  groups.forEach(function (group) {
+    group.forEach(function (item) {
+      let best = -1;
+      shuffle(rounds.map(function (unused, index) {
+        return index;
+      }), random).forEach(function (index) {
+        if (rounds[index].length >= FARM_TARGETS_PER_ROUND) return;
+        if (best < 0) {
+          best = index;
+          return;
+        }
+        const here = habitatCounts[index][item.habitat] || 0;
+        const there = habitatCounts[best][item.habitat] || 0;
+        if (here < there || (here === there && rounds[index].length < rounds[best].length)) {
+          best = index;
+        }
+      });
+      rounds[best].push(item);
+      habitatCounts[best][item.habitat] = (habitatCounts[best][item.habitat] || 0) + 1;
+    });
+  });
+  return rounds;
+}
+
+export function createFarmSession(random) {
+  return dealFarmItems(random).map(function (group, roundIndex) {
+    /* Slots are shuffled too, so the same food never grows in the same corner. */
+    const items = shuffle(group, random).map(function (item, slot) {
+      return {
+        id: item.id,
+        label: item.label,
+        kind: item.kind,
+        habitat: item.habitat,
+        slot: slot,
+      };
+    });
     return {
-      id: item.id,
-      label: item.label,
-      kind: item.kind,
-      habitat: item.habitat,
-      slot: index,
+      activity: "farm",
+      roundIndex: roundIndex,
+      items: items,
+      quest: shuffle(items, random).map(function (item) {
+        return item.id;
+      }),
     };
   });
-  return {
-    activity: "farm",
-    sceneId: authored.id,
-    items: items,
-    quest: shuffle(items, random).map(function (item) {
-      return item.id;
-    }),
-  };
 }
 
 /* --------------------------------------------------------------- animals */
 /*
- * One silhouette, several candidates. The candidate row grows from two to four
- * across the session, which is the only difficulty knob the child ever meets.
+ * One silhouette, several candidates. Which animals share a round is random;
+ * only the widening choice row is fixed.
  */
-export function createAnimalRound(roundIndex, random) {
-  const authored = ANIMAL_ROUNDS[modulo(roundIndex, ANIMAL_ROUNDS.length)];
-  const choiceCount = Math.min(authored.choices, authored.ids.length);
-  const order = shuffle(authored.ids, random);
-  const steps = order.map(function (targetId) {
-    const decoys = shuffle(
-      authored.ids.filter(function (id) {
-        return id !== targetId;
+export function createAnimalSession(random) {
+  const order = shuffle(ANIMALS, random);
+  const rounds = [];
+  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
+    const group = order.slice(
+      roundIndex * ANIMAL_TARGETS_PER_ROUND,
+      (roundIndex + 1) * ANIMAL_TARGETS_PER_ROUND,
+    );
+    const choiceCount = Math.min(
+      ANIMAL_CHOICE_PROGRESSION[roundIndex] || ANIMAL_CHOICE_PROGRESSION[0],
+      group.length,
+    );
+    rounds.push({
+      activity: "animal",
+      roundIndex: roundIndex,
+      choiceCount: choiceCount,
+      steps: shuffle(group, random).map(function (target) {
+        const decoys = shuffle(
+          group.filter(function (animal) {
+            return animal.id !== target.id;
+          }),
+          random,
+        ).slice(0, choiceCount - 1);
+        return {
+          targetId: target.id,
+          choices: shuffle([target].concat(decoys), random).map(function (animal) {
+            return animal.id;
+          }),
+        };
       }),
-      random,
-    ).slice(0, choiceCount - 1);
-    return {
-      targetId: targetId,
-      choices: shuffle([targetId].concat(decoys), random),
-    };
-  });
-  return {
-    activity: "animal",
-    sceneId: authored.id,
-    choiceCount: choiceCount,
-    steps: steps,
-  };
+    });
+  }
+  return rounds;
 }
 
 export function animalById(id) {
@@ -130,39 +215,64 @@ export function literacyCatalog(activity) {
 }
 
 /*
- * The whole chart is always on screen; only the requested letters advance.
- * A session walks fifteen letters, and the saved curriculum index makes the
- * next session continue where this one stopped.
+ * The whole chart is always on screen, so the asking order can be random
+ * without making anything harder to find. The order is a saved shuffle of the
+ * entire chart, walked fifteen letters per session: no session repeats a
+ * letter, and every letter comes round in turn.
  */
-export function createLiteracyRound(activity, roundIndex, curriculumIndex) {
-  const catalog = literacyCatalog(activity);
-  const start = nonNegativeInteger(curriculumIndex)
-    + modulo(roundIndex, ROUNDS_PER_ACTIVITY) * LITERACY_TARGETS_PER_ROUND;
-  const targets = [];
-  for (let index = 0; index < LITERACY_TARGETS_PER_ROUND; index += 1) {
-    targets.push(catalog[modulo(start + index, catalog.length)]);
-  }
-  return { activity: activity, targets: targets };
+export function literacyOrder(activity, seed) {
+  return shuffle(literacyCatalog(activity), seededRandom(seed));
 }
 
-export function nextCurriculumIndex(activity, currentIndex, amount) {
-  const step = amount === undefined ? LITERACY_TARGETS_PER_SESSION : amount;
+export function createLiteracySession(activity, curriculumIndex, seed) {
+  const order = literacyOrder(activity, seed);
+  const start = nonNegativeInteger(curriculumIndex);
+  const rounds = [];
+  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
+    const targets = [];
+    for (let index = 0; index < LITERACY_TARGETS_PER_ROUND; index += 1) {
+      const position = start + roundIndex * LITERACY_TARGETS_PER_ROUND + index;
+      targets.push(order[modulo(position, order.length)]);
+    }
+    rounds.push({ activity: activity, roundIndex: roundIndex, targets: targets });
+  }
+  return rounds;
+}
+
+/*
+ * Advance the saved position, and reshuffle whenever the walk wraps past the
+ * end of the chart so the next pass through comes in a different order.
+ */
+export function advanceCurriculum(activity, currentIndex, seed) {
   let catalog;
   try {
     catalog = literacyCatalog(activity);
   } catch (error) {
-    return nonNegativeInteger(currentIndex);
+    return { index: nonNegativeInteger(currentIndex), seed: nonNegativeInteger(seed) };
   }
-  return modulo(nonNegativeInteger(currentIndex) + step, catalog.length);
+  const index = modulo(nonNegativeInteger(currentIndex), catalog.length);
+  const raw = index + LITERACY_TARGETS_PER_SESSION;
+  return {
+    index: modulo(raw, catalog.length),
+    seed: raw >= catalog.length ? nextSeed(seed) : nonNegativeInteger(seed),
+  };
 }
 
 /* ------------------------------------------------------------ progression */
-export function createRound(activity, roundIndex, options) {
+/*
+ * A session is all three rounds. Building them together is what lets the farm
+ * guarantee that every food appears exactly once even though the deal is random.
+ */
+export function createSession(activity, options) {
   const settings = options || {};
-  if (activity === "farm") return createFarmRound(roundIndex, settings.random);
-  if (activity === "animal") return createAnimalRound(roundIndex, settings.random);
+  const random = settings.random || Math.random;
+  if (activity === "farm") return { activity: activity, rounds: createFarmSession(random) };
+  if (activity === "animal") return { activity: activity, rounds: createAnimalSession(random) };
   if (activity === "hiragana" || activity === "alphabet") {
-    return createLiteracyRound(activity, roundIndex, settings.curriculumIndex);
+    return {
+      activity: activity,
+      rounds: createLiteracySession(activity, settings.curriculumIndex, settings.curriculumSeed),
+    };
   }
   throw new Error("Unknown activity: " + activity);
 }
@@ -208,7 +318,7 @@ export function hintStage(idleMilliseconds, wrongTaps) {
   return Math.min(stage, HINT_STAGE_DELAYS.length);
 }
 
-/* -------------------------------------------------------------- storage */
+/* --------------------------------------------------------------- storage */
 export function loadSavedState(settingsValue, progressValue, reduceMotionDefault) {
   const settings = safeParse(settingsValue);
   const progress = safeParse(progressValue);
@@ -219,6 +329,8 @@ export function loadSavedState(settingsValue, progressValue, reduceMotionDefault
       progress.completed ? progress.completed[activity] : 0,
     );
   });
+  const curriculum = progress.curriculum || {};
+  const seeds = progress.curriculumSeed || {};
   return {
     settings: {
       effects: typeof settings.effects === "boolean" ? settings.effects : legacySound,
@@ -232,14 +344,14 @@ export function loadSavedState(settingsValue, progressValue, reduceMotionDefault
       sessions: nonNegativeInteger(progress.sessions),
       completed: completed,
       curriculum: {
-        hiragana: modulo(
-          nonNegativeInteger(progress.curriculum ? progress.curriculum.hiragana : 0),
-          HIRAGANA.length,
-        ),
-        alphabet: modulo(
-          nonNegativeInteger(progress.curriculum ? progress.curriculum.alphabet : 0),
-          ALPHABET.length,
-        ),
+        hiragana: modulo(nonNegativeInteger(curriculum.hiragana), HIRAGANA.length),
+        alphabet: modulo(nonNegativeInteger(curriculum.alphabet), ALPHABET.length),
+      },
+      /* Zero means "never seeded"; the app picks a random seed on first play so
+       * two devices do not walk the alphabet in the same order. */
+      curriculumSeed: {
+        hiragana: nonNegativeInteger(seeds.hiragana),
+        alphabet: nonNegativeInteger(seeds.alphabet),
       },
     },
   };

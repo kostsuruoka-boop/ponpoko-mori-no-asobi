@@ -1,8 +1,8 @@
 # 画像素材の生成と加工
 
-すべてこのゲーム専用のオリジナル素材。OpenAIの画像生成でクロマキー背景のシートを作り、
-`remove_chroma_key.py`（imagegenスキル付属）でRGBA PNGに変換した。
-生成元は `tmp/imagegen/` に置くが、`tmp/` はGit管理対象外。
+すべてこのゲーム専用のオリジナル素材。画像生成でクロマキー背景のシートを作り、
+`scripts/remove-chroma.py` でRGBA PNGに変換する。生成元は `tmp/imagegen/` に置くが、
+`tmp/` はGit管理対象外。
 
 ## パイプライン
 
@@ -15,6 +15,8 @@
 ```
 
 ```bash
+.venv/bin/python scripts/remove-chroma.py \
+  --input tmp/imagegen/<sheet>-chroma.png --out assets/<sheet>.png
 .venv/bin/python scripts/make-sprites.py
 .venv/bin/python scripts/make-icons.py
 npm run build
@@ -26,7 +28,7 @@ npm run build
 - `fruit-sprites-v1.png`: 果物9種 3列×3行
 - `vegetable-sprites-v1.png`: 野菜9種 3列×3行
 - `animal-sprites-v1.png`: 動物12種 3列×4行
-- `abc-sprites-v1.png`: **未作成**（下記「追加依頼中」）
+- `abc-sprites-v1.png`: ABC用の絵12種 3列×4行（さかな／かまくら／ジュース／たこ／巣／王冠／うさぎ／とら／かさ／バイオリン／木琴／ヨーヨー）
 
 すべてのセルは正方形。分割時に拡大縮小しないので、さくらんぼとスイカの大小関係が保たれる。
 
@@ -40,34 +42,39 @@ CSSスプライトシートを `background-size: 300% 300%` で切り出すと�
 `make-sprites.py` は連結成分解析で**最大成分の6%未満の孤立した断片を削除**する。
 さくらんぼの2粒やバナナの房は連結しているので残る。ねこのヒゲも残る。
 
-分割時に検出された断片: さくらんぼ、にんじん、ねこ、ぶた、たぬき（跳ぶ）。
+分割時に検出された断片: さくらんぼ、にんじん、ねこ、ぶた、たぬき（跳ぶ）、たこ、巣、うさぎ、バイオリン。
 
-## 透明化（元シート作成時の記録）
+## 透明化（`scripts/remove-chroma.py`）
 
-果物と野菜はマゼンタ背景。紫を保護する狭いマット範囲を使用。
+キー色は既定で**画像の外周から自動サンプリング**する。生成器は依頼した #00ff00 をきっちり出さないため、
+決め打ちより安全である（実測 rgb(2,248,3)）。
 
-```bash
-.venv/bin/python /absolute/path/to/remove_chroma_key.py \
-  --input tmp/imagegen/<source>.png \
-  --out assets/<final>.png \
-  --auto-key border \
-  --soft-matte \
-  --transparent-threshold 10 \
-  --opaque-threshold 55
-```
+マットは2つのしきい値で作る。キー色との距離が `--transparent-threshold` 以下なら完全透明、
+`--opaque-threshold` 以上なら完全不透明、その間は徐々に薄くする。この帯があるおかげで
+アンチエイリアスされた輪郭がギザギザにならない。ディスピルは**この帯の中だけ**に効かせるので、
+本物の緑の葉や黄・茶の毛色は一切触らない。
 
-動物は緑背景で同じ設定。強い `--despill` は黄・茶系の毛色を損なうため使わない。
-変更時は必ず、透明な角・輪郭の色・顔・全身・セル越境を目視検査する。
+既定値 `95 / 160 / 0.95` は、出荷済みの動物シートを再処理して released 版と輪郭を見比べて決めた。
+これより緩いと、輪郭に幅1〜2pxの緑の縁が残る。マゼンタ背景（果物・野菜）でも同じ既定値でよい。
 
-## 追加依頼中: `abc-sprites-v1.png`
+素材を差し替えたら必ず、透明な角・輪郭の色・顔・全身・セル越境を**目視**で検査する。
 
-ABCモードは、正解した文字に「A → Apple」のごほうびカードを出す。
-既存素材でA/B/C/D/E/G/H/L/M/O/P/S/W/Zの14文字は絵が用意できるが、
-**F I J K N Q R T U V X Y の12文字に絵がない**。
+## ABC用シート（2026-08-09 追加）
 
-このシートが `assets/abc-sprites-v1.png` として置かれれば、
-`make-sprites.py` が自動で分割し、ビルドが自動で機能を有効化する（コード変更は不要）。
-無い間は、その文字は絵なしの文字カードだけを出すので、壊れた表示にはならない。
+ABCモードのごほうびカードで、既存素材に絵がなかった12文字ぶん。
+
+| 文字 | 絵 | 文字 | 絵 |
+| --- | --- | --- | --- |
+| F | Fish | Q | Queen |
+| I | Igloo | R | Rabbit |
+| J | Juice | T | Tiger |
+| K | Kite | U | Umbrella |
+| N | Nest | V | Violin |
+|  |  | X | Xylophone |
+|  |  | Y | Yoyo |
+
+これで**A〜Z の26文字すべてに絵がある**。ビルドは `assets/sprites/abc-fish.png` の有無を見て
+`window.__ponpokoAssets.abc` を切り替えるので、コード側の分岐は不要。
 
 ### 生成プロンプト
 
@@ -87,20 +94,13 @@ Constraints: exactly twelve objects and no extras; no grid lines; no scenery; no
 Avoid: realistic photography, scary expressions, thin fragile parts, clutter, cropping, inconsistent style.
 ```
 
-生成後の手順:
+たこ・うさぎ・バイオリンのセルでは、隣のセルへはみ出した描画が実際に発生した。
+`make-sprites.py` の連結成分フィルタがそれだけを除去し、
+バイオリンの弓・木琴のばち・たこのリボン・ヨーヨーの紐は残っている（目視確認済み）。
 
-```bash
-.venv/bin/python /absolute/path/to/remove_chroma_key.py \
-  --input tmp/imagegen/abc-sprites-chroma.png \
-  --out assets/abc-sprites-v1.png \
-  --auto-key border --soft-matte \
-  --transparent-threshold 10 --opaque-threshold 55
-.venv/bin/python scripts/make-sprites.py
-npm run build
-```
-
-`tests/game-core.test.mjs` の `letters that already have shipped artwork never depend on the bonus sheet`
-が、既存素材で足りている文字と追加が必要な文字の切り分けを固定している。
+`tests/game-core.test.mjs` の
+`every picture the game can name has a sprite file on disk` が、
+コードが参照する絵と実ファイルの対応を固定している。
 
 ## アイコン
 

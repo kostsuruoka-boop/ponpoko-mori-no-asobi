@@ -1,14 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
 
 import {
   ACTIVITY_META,
   ACTIVITY_ORDER,
   ALPHABET,
   ANIMALS,
-  ANIMAL_ROUNDS,
+  ANIMAL_CHOICE_PROGRESSION,
+  FARM_HABITATS,
   FARM_ITEMS,
-  FARM_ROUNDS,
   FRUITS,
   HIRAGANA,
   ROUNDS_PER_ACTIVITY,
@@ -20,21 +21,28 @@ import {
   HINT_STAGE_DELAYS,
   LITERACY_TARGETS_PER_ROUND,
   LITERACY_TARGETS_PER_SESSION,
+  advanceCurriculum,
   advanceRound,
   animalById,
-  createAnimalRound,
-  createFarmRound,
-  createLiteracyRound,
-  createRound,
+  createAnimalSession,
+  createFarmSession,
+  createLiteracySession,
+  createSession,
   hintStage,
   literacyCatalog,
+  literacyOrder,
   loadSavedState,
-  nextCurriculumIndex,
+  nextSeed,
   normalizeActivity,
+  seededRandom,
   shuffle,
   targetsPerRound,
 } from "../src/game-core.js";
 import { HABITATS, habitatFor } from "../src/scenery.js";
+
+/* Distinct generators so a bug that ignores `random` cannot pass by accident. */
+const SEEDS = [1, 7, 99, 12345, 20260809, 777777];
+const generators = () => SEEDS.map((seed) => seededRandom(seed));
 
 /* ------------------------------------------------------------- catalogue */
 
@@ -60,8 +68,8 @@ test("every produce grows where it really grows and has drawn scenery", () => {
   assert.equal(habitatById.cabbage, "ground");
   assert.equal(habitatById.banana, "palm");
 
+  assert.deepEqual(FARM_HABITATS.toSorted(), Object.keys(HABITATS).toSorted());
   FARM_ITEMS.forEach((item) => {
-    assert.ok(HABITATS[item.habitat], `${item.id} needs habitat art for ${item.habitat}`);
     const habitat = habitatFor(item.habitat);
     assert.ok(habitat.back.includes("<svg"), `${item.habitat} needs a back layer`);
     assert.ok(habitat.scale > 0.3 && habitat.scale < 0.6);
@@ -81,55 +89,115 @@ test("every animal has a label and only iconic ones carry a cry", () => {
   assert.throws(() => animalById("dragon"), /Unknown catalog item/);
 });
 
+/* ------------------------------------------------------------ randomness */
+
+test("the seeded generator is deterministic, in range, and moves on", () => {
+  assert.deepEqual(
+    Array.from({ length: 4 }, seededRandom(42)),
+    Array.from({ length: 4 }, seededRandom(42)),
+  );
+  assert.notDeepEqual(
+    Array.from({ length: 4 }, seededRandom(42)),
+    Array.from({ length: 4 }, seededRandom(43)),
+  );
+  const values = Array.from({ length: 500 }, seededRandom(2026));
+  assert.ok(values.every((value) => value >= 0 && value < 1));
+  assert.ok(new Set(values).size > 400, "the generator must not get stuck");
+  assert.notEqual(nextSeed(5), 5);
+  assert.ok(nextSeed(0) > 0);
+  assert.equal(nextSeed(5), nextSeed(5));
+});
+
 /* ------------------------------------------------------------------ farm */
 
-test("three farm rounds feature all eighteen foods exactly once", () => {
-  const featured = [];
-  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
-    const round = createFarmRound(roundIndex, () => 0.5);
-    assert.equal(round.activity, "farm");
-    assert.equal(round.items.length, FARM_TARGETS_PER_ROUND);
-    featured.push(...round.items.map((item) => item.id));
-  }
-  assert.deepEqual(featured.toSorted(), FARM_ITEMS.map((item) => item.id).toSorted());
+test("a farm session always features all eighteen foods exactly once", () => {
+  generators().forEach((random) => {
+    const rounds = createFarmSession(random);
+    assert.equal(rounds.length, ROUNDS_PER_ACTIVITY);
+    const featured = [];
+    rounds.forEach((round, roundIndex) => {
+      assert.equal(round.activity, "farm");
+      assert.equal(round.roundIndex, roundIndex);
+      assert.equal(round.items.length, FARM_TARGETS_PER_ROUND);
+      assert.deepEqual(round.items.map((item) => item.slot), [0, 1, 2, 3, 4, 5]);
+      assert.deepEqual(
+        round.quest.toSorted(),
+        round.items.map((item) => item.id).toSorted(),
+        "the round may only ask for produce that is on its board",
+      );
+      featured.push(...round.items.map((item) => item.id));
+    });
+    assert.deepEqual(featured.toSorted(), FARM_ITEMS.map((item) => item.id).toSorted());
+  });
 });
 
-test("farm slots are stable while the request order is shuffled", () => {
-  const round = createFarmRound(0, () => 0.99);
-  assert.deepEqual(round.items.map((item) => item.slot), [0, 1, 2, 3, 4, 5]);
-  assert.deepEqual(round.items.map((item) => item.id), FARM_ROUNDS[0].ids);
-  assert.deepEqual(round.quest.toSorted(), FARM_ROUNDS[0].ids.toSorted());
-  assert.equal(round.quest.length, new Set(round.quest).size);
+test("a randomly dealt farm board still mixes several growing places", () => {
+  /* Swept rather than sampled: this invariant is the whole reason the deal is
+   * not a plain shuffle, and a rare bad hand would otherwise ship. */
+  for (let seed = 1; seed <= 600; seed += 1) {
+    const rounds = createFarmSession(seededRandom(seed));
+    const featured = [];
+    rounds.forEach((round, roundIndex) => {
+      const habitats = new Set(round.items.map((item) => item.habitat));
+      assert.ok(
+        habitats.size >= 4,
+        `seed ${seed} round ${roundIndex} only has ${habitats.size} habitats`,
+      );
+      featured.push(...round.items.map((item) => item.id));
+    });
+    assert.equal(new Set(featured).size, FARM_ITEMS.length, `seed ${seed} lost produce`);
+  }
 });
 
-test("each farm round mixes growing places so the scene never repeats itself", () => {
-  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
-    const round = createFarmRound(roundIndex, () => 0.3);
-    const habitats = new Set(round.items.map((item) => item.habitat));
-    assert.ok(habitats.size >= 3, `round ${roundIndex} only has ${habitats.size} habitats`);
-  }
+test("farm boards, slots and asking order all differ between sessions", () => {
+  const boards = new Set();
+  const slots = new Set();
+  const quests = new Set();
+  SEEDS.forEach((seed) => {
+    const rounds = createFarmSession(seededRandom(seed));
+    boards.add(rounds.map((round) => round.items.map((item) => item.id).toSorted().join(",")).join("|"));
+    slots.add(rounds[0].items.map((item) => item.id).join(","));
+    quests.add(rounds[0].quest.join(","));
+  });
+  assert.ok(boards.size > 1, "which foods share a round must vary");
+  assert.ok(slots.size > 1, "where a food grows on the board must vary");
+  assert.ok(quests.size > 1, "the asking order must vary");
 });
 
 /* --------------------------------------------------------------- animals */
 
-test("animal rounds ask for one silhouette at a time with growing choices", () => {
-  const featured = [];
-  const expectedChoices = ANIMAL_ROUNDS.map((round) => round.choices);
-  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
-    const round = createAnimalRound(roundIndex, () => 0.5);
-    assert.equal(round.activity, "animal");
-    assert.equal(round.steps.length, ANIMAL_TARGETS_PER_ROUND);
-    assert.equal(round.choiceCount, expectedChoices[roundIndex]);
-    round.steps.forEach((step) => {
-      assert.equal(step.choices.length, expectedChoices[roundIndex]);
-      assert.equal(new Set(step.choices).size, step.choices.length);
-      assert.equal(step.choices.filter((id) => id === step.targetId).length, 1);
-      step.choices.forEach((id) => assert.ok(ANIMAL_ROUNDS[roundIndex].ids.includes(id)));
+test("an animal session covers all twelve animals with a widening choice row", () => {
+  generators().forEach((random) => {
+    const rounds = createAnimalSession(random);
+    const featured = [];
+    rounds.forEach((round, roundIndex) => {
+      assert.equal(round.activity, "animal");
+      assert.equal(round.steps.length, ANIMAL_TARGETS_PER_ROUND);
+      assert.equal(round.choiceCount, ANIMAL_CHOICE_PROGRESSION[roundIndex]);
+      const inRound = round.steps.map((step) => step.targetId);
+      round.steps.forEach((step) => {
+        assert.equal(step.choices.length, round.choiceCount);
+        assert.equal(new Set(step.choices).size, step.choices.length);
+        assert.equal(step.choices.filter((id) => id === step.targetId).length, 1);
+        step.choices.forEach((id) => assert.ok(inRound.includes(id), "decoys come from this round"));
+      });
+      featured.push(...inRound);
     });
-    featured.push(...round.steps.map((step) => step.targetId));
-  }
-  assert.deepEqual(featured.toSorted(), ANIMALS.map((animal) => animal.id).toSorted());
-  assert.deepEqual(expectedChoices, [2, 3, 4]);
+    assert.deepEqual(featured.toSorted(), ANIMALS.map((animal) => animal.id).toSorted());
+  });
+  assert.deepEqual(ANIMAL_CHOICE_PROGRESSION, [2, 3, 4]);
+});
+
+test("animal groupings and silhouette order differ between sessions", () => {
+  const groupings = new Set();
+  const orders = new Set();
+  SEEDS.forEach((seed) => {
+    const rounds = createAnimalSession(seededRandom(seed));
+    groupings.add(rounds.map((round) => round.steps.map((step) => step.targetId).toSorted().join(",")).join("|"));
+    orders.add(rounds[0].steps.map((step) => step.targetId).join(","));
+  });
+  assert.ok(groupings.size > 1, "which animals share a round must vary");
+  assert.ok(orders.size > 1, "the silhouette order must vary");
 });
 
 /* -------------------------------------------------------------- literacy */
@@ -137,8 +205,7 @@ test("animal rounds ask for one silhouette at a time with growing choices", () =
 test("the hiragana chart is a complete 五十音図 with ん beside わ", () => {
   assert.equal(HIRAGANA.length, 46);
   assert.equal(new Set(HIRAGANA.map((item) => item.glyph)).size, 46);
-  const at = (column, row) =>
-    HIRAGANA.find((item) => item.column === column && item.row === row);
+  const at = (column, row) => HIRAGANA.find((item) => item.column === column && item.row === row);
   assert.equal(at(0, 0).glyph, "あ");
   assert.equal(at(1, 0).glyph, "か");
   assert.equal(at(7, 1), undefined, "や行 has no い段");
@@ -172,6 +239,23 @@ test("letters that already have shipped artwork never depend on the bonus sheet"
   });
 });
 
+test("every picture the game can name has a sprite file on disk", () => {
+  const sprites = new Set(
+    readdirSync(new URL("../assets/sprites/", import.meta.url))
+      .filter((name) => name.endsWith(".png"))
+      .map((name) => name.slice(0, -4)),
+  );
+  FARM_ITEMS.forEach((item) => assert.ok(sprites.has(item.id), `missing sprite: ${item.id}`));
+  ANIMALS.forEach((animal) => assert.ok(sprites.has(animal.id), `missing sprite: ${animal.id}`));
+  ["wave", "run", "reach", "basket", "push", "jump"].forEach((pose) => {
+    assert.ok(sprites.has(`tanuki-${pose}`), `missing tanuki pose: ${pose}`);
+  });
+  ALPHABET.forEach((item) => assert.ok(sprites.has(item.sprite), `missing sprite: ${item.sprite}`));
+  HIRAGANA.filter((item) => item.sprite).forEach((item) => {
+    assert.ok(sprites.has(item.sprite), `missing sprite: ${item.sprite}`);
+  });
+});
+
 test("hiragana reward words reuse pictures the child already met", () => {
   const withPictures = HIRAGANA.filter((item) => item.sprite);
   assert.ok(withPictures.length >= 15);
@@ -180,35 +264,84 @@ test("hiragana reward words reuse pictures the child already met", () => {
   );
   withPictures.forEach((item) => {
     assert.ok(spriteIds.has(item.sprite), `${item.glyph} points at unknown sprite ${item.sprite}`);
-    assert.ok(item.word.startsWith(item.glyph) || item.word.length > 1);
   });
 });
 
-test("a literacy session walks fifteen letters and remembers where it stopped", () => {
-  const first = createLiteracyRound("hiragana", 0, 0);
-  const second = createLiteracyRound("hiragana", 1, 0);
-  assert.equal(first.targets.length, LITERACY_TARGETS_PER_ROUND);
-  assert.deepEqual(first.targets.map((item) => item.glyph), ["あ", "い", "う", "え", "お"]);
-  assert.deepEqual(second.targets.map((item) => item.glyph), ["か", "き", "く", "け", "こ"]);
-  assert.equal(LITERACY_TARGETS_PER_SESSION, 15);
-  assert.equal(nextCurriculumIndex("hiragana", 0), 15);
-  assert.equal(nextCurriculumIndex("hiragana", 40), 9);
-  assert.equal(nextCurriculumIndex("alphabet", 20), 9);
-  assert.equal(nextCurriculumIndex("nothing", 4), 4);
-  assert.throws(() => literacyCatalog("farm"), /Unknown literacy activity/);
+test("the letter order is a full shuffle of the chart, stable for one seed", () => {
+  ["hiragana", "alphabet"].forEach((activity) => {
+    const catalog = literacyCatalog(activity);
+    const order = literacyOrder(activity, 4242);
+    assert.deepEqual(
+      order.map((item) => item.id).toSorted(),
+      catalog.map((item) => item.id).toSorted(),
+      "every letter has to stay reachable",
+    );
+    assert.deepEqual(order, literacyOrder(activity, 4242));
+    assert.notDeepEqual(
+      order.map((item) => item.id),
+      literacyOrder(activity, 4243).map((item) => item.id),
+    );
+    assert.notDeepEqual(
+      order.map((item) => item.id),
+      catalog.map((item) => item.id),
+      "the asking order must not be plain chart order",
+    );
+  });
 });
 
-test("a literacy session never repeats a letter inside the same session", () => {
-  const seen = [];
-  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
-    seen.push(...createLiteracyRound("alphabet", roundIndex, 4).targets.map((item) => item.glyph));
+test("a literacy session asks fifteen different letters in random order", () => {
+  ["hiragana", "alphabet"].forEach((activity) => {
+    SEEDS.forEach((seed) => {
+      const rounds = createLiteracySession(activity, 0, seed);
+      assert.equal(rounds.length, ROUNDS_PER_ACTIVITY);
+      const asked = [];
+      rounds.forEach((round) => {
+        assert.equal(round.targets.length, LITERACY_TARGETS_PER_ROUND);
+        asked.push(...round.targets.map((target) => target.glyph));
+      });
+      assert.equal(asked.length, LITERACY_TARGETS_PER_SESSION);
+      assert.equal(new Set(asked).size, LITERACY_TARGETS_PER_SESSION, "no letter twice in a session");
+    });
+  });
+});
+
+test("a session wrapping past the end of the chart still never repeats a letter", () => {
+  const rounds = createLiteracySession("alphabet", 20, 31337);
+  const asked = rounds.flatMap((round) => round.targets.map((target) => target.glyph));
+  assert.equal(asked.length, LITERACY_TARGETS_PER_SESSION);
+  assert.equal(new Set(asked).size, LITERACY_TARGETS_PER_SESSION);
+});
+
+test("the curriculum walks the chart and reshuffles once it wraps", () => {
+  const first = advanceCurriculum("hiragana", 0, 900);
+  assert.deepEqual(first, { index: 15, seed: 900 }, "mid-chart keeps the same order");
+  const second = advanceCurriculum("hiragana", 30, 900);
+  assert.equal(second.index, 45);
+  assert.equal(second.seed, 900);
+  const wrapped = advanceCurriculum("hiragana", 45, 900);
+  assert.equal(wrapped.index, 14);
+  assert.notEqual(wrapped.seed, 900, "a new pass gets a new order");
+  assert.equal(advanceCurriculum("alphabet", 15, 5).index, 4);
+  assert.notEqual(advanceCurriculum("alphabet", 15, 5).seed, 5);
+  assert.deepEqual(advanceCurriculum("farm", 3, 8), { index: 3, seed: 8 });
+});
+
+test("three sessions in a row cover most of the hiragana chart", () => {
+  let index = 0;
+  let seed = 2026;
+  const seen = new Set();
+  for (let session = 0; session < 3; session += 1) {
+    createLiteracySession("hiragana", index, seed).forEach((round) => {
+      round.targets.forEach((target) => seen.add(target.glyph));
+    });
+    const advanced = advanceCurriculum("hiragana", index, seed);
+    index = advanced.index;
+    seed = advanced.seed;
   }
-  assert.equal(seen.length, LITERACY_TARGETS_PER_SESSION);
-  assert.equal(new Set(seen).size, LITERACY_TARGETS_PER_SESSION);
-  assert.equal(seen[0], "E");
+  assert.equal(seen.size, 45, "45 of the 46 characters within three sessions");
 });
 
-/* ------------------------------------------------------------- guidance */
+/* -------------------------------------------------------------- guidance */
 
 test("guidance escalates on idling and reaches the pointing stage on wrong taps", () => {
   assert.equal(hintStage(0, 0), 0);
@@ -226,18 +359,33 @@ test("guidance escalates on idling and reaches the pointing stage on wrong taps"
 
 /* ----------------------------------------------------------- progression */
 
-test("the round factory supports all four modes and rejects unknown ones", () => {
+test("the session factory supports all four modes and rejects unknown ones", () => {
   assert.deepEqual(ACTIVITY_ORDER, ["farm", "animal", "hiragana", "alphabet"]);
   ACTIVITY_ORDER.forEach((activity) => {
-    const round = createRound(activity, 0, { curriculumIndex: 3, random: () => 0.4 });
-    assert.equal(round.activity, activity);
+    const session = createSession(activity, {
+      random: seededRandom(11),
+      curriculumIndex: 3,
+      curriculumSeed: 12,
+    });
+    assert.equal(session.activity, activity);
+    assert.equal(session.rounds.length, ROUNDS_PER_ACTIVITY);
+    session.rounds.forEach((round) => assert.equal(round.activity, activity));
     assert.ok(ACTIVITY_META[activity].title.length > 0);
-    assert.ok(targetsPerRound(activity) >= 4);
   });
   assert.equal(targetsPerRound("farm"), 6);
   assert.equal(targetsPerRound("animal"), 4);
   assert.equal(targetsPerRound("hiragana"), 5);
-  assert.throws(() => createRound("unknown", 0), /Unknown activity/);
+  assert.throws(() => createSession("unknown"), /Unknown activity/);
+  assert.throws(() => literacyCatalog("farm"), /Unknown literacy activity/);
+});
+
+test("two sessions of the same mode are not the same session", () => {
+  const first = createSession("farm", { random: seededRandom(3) });
+  const second = createSession("farm", { random: seededRandom(4) });
+  assert.notDeepEqual(
+    first.rounds.map((round) => round.items.map((item) => item.id)),
+    second.rounds.map((round) => round.items.map((item) => item.id)),
+  );
 });
 
 test("round advancement waits for the child at every completed board", () => {
@@ -260,12 +408,12 @@ test("shuffle keeps every item and leaves the input untouched", () => {
   assert.equal(shuffle(source).length, 4);
 });
 
-/* -------------------------------------------------------------- storage */
+/* --------------------------------------------------------------- storage */
 
 test("saved state is sanitised and migrates the old sound preference", () => {
   const loaded = loadSavedState(
     '{"sound":false,"reduceMotion":true}',
-    '{"sessions":"4.8","completed":{"farm":2,"animal":-2},"curriculum":{"hiragana":48,"alphabet":28}}',
+    '{"sessions":"4.8","completed":{"farm":2,"animal":-2},"curriculum":{"hiragana":48,"alphabet":28},"curriculumSeed":{"hiragana":"77","alphabet":-3}}',
   );
   assert.deepEqual(loaded.settings, { effects: false, voice: false, reduceMotion: true });
   assert.equal(loaded.progress.sessions, 4);
@@ -273,6 +421,8 @@ test("saved state is sanitised and migrates the old sound preference", () => {
   assert.equal(loaded.progress.completed.animal, 0);
   assert.equal(loaded.progress.curriculum.hiragana, 2);
   assert.equal(loaded.progress.curriculum.alphabet, 2);
+  assert.equal(loaded.progress.curriculumSeed.hiragana, 77);
+  assert.equal(loaded.progress.curriculumSeed.alphabet, 0);
 });
 
 test("unreadable storage still produces a playable default state", () => {
@@ -281,4 +431,5 @@ test("unreadable storage still produces a playable default state", () => {
   assert.equal(loaded.progress.sessions, 0);
   ACTIVITY_ORDER.forEach((activity) => assert.equal(loaded.progress.completed[activity], 0));
   assert.equal(loaded.progress.curriculum.hiragana, 0);
+  assert.equal(loaded.progress.curriculumSeed.alphabet, 0, "zero means the app picks a seed");
 });
