@@ -1,4 +1,4 @@
-const CACHE_NAME = "ponpoko-adventure-v3";
+const CACHE_NAME = "ponpoko-adventure-v4";
 const APP_FILES = [
   "./",
   "./index.html",
@@ -8,6 +8,9 @@ const APP_FILES = [
   "./manifest.webmanifest",
   "./icon.svg",
   "./assets/tanuki-sprites-v2.png",
+  "./assets/fruit-sprites-v1.png",
+  "./assets/vegetable-sprites-v1.png",
+  "./assets/animal-sprites-v1.png",
 ];
 
 self.addEventListener("install", (event) => {

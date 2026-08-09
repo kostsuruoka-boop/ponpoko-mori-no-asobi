@@ -1,32 +1,88 @@
-# Repository Guidelines
+# PONPOKO MORI NO ASOBI — Agent Guide
 
-## Project Structure & Module Organization
+This repository is a production-minded, static web game for a toddler using an iPad. The product goal is not a generic demo: it is a joyful, immediately understandable play experience centered on an animated tanuki. Any coding agent working here should preserve that goal while being free to improve architecture, visuals, content, and tooling.
 
-This repository is currently an empty project scaffold. As implementation begins, keep production code under `src/`, tests under `tests/`, and static resources under `assets/`. Group code by feature or domain rather than placing unrelated modules in a single directory. Keep generated output (for example, `build/`, `dist/`, or coverage reports) out of source directories and add it to `.gitignore`.
+## Product priorities
 
-Document any intentional deviation from this layout in this file or the project README. Prefer small modules with clear public interfaces, and keep configuration files at the repository root when required by the selected toolchain.
+Use this order when trade-offs arise:
 
-## Build, Test, and Development Commands
+1. A child aged roughly 1–2 can understand the next action without reading or spoken instructions.
+2. Every touch creates immediate, delightful visual and action-sound feedback.
+3. The educational relationship is embodied by the interaction itself—not explained with labels.
+4. The tanuki is visibly involved in play and remains naturally grounded in the scene.
+5. The entire iPad screen is purposeful, uncluttered, safe, and responsive in portrait and landscape.
+6. Parent controls, persistence, offline support, accessibility, tests, and maintainability remain reliable.
 
-The project uses dependency-free npm scripts (Node.js 20+; Python 3 is used only by the local static server):
+## Experience rules
 
-- `npm run build`: produce the GitHub Pages-ready `dist/` directory.
-- `npm test`: run the complete game-logic test suite with Node's built-in test runner.
-- `npm run lint`: syntax-check application, build, and service-worker JavaScript.
-- `npm run dev`: build and serve the app at `http://localhost:4173`.
+- Use large touch targets (at least 72 CSS px where practical) with generous spacing.
+- Do not require reading, speech comprehension, precise dragging, double taps, timers, scores, lives, or failure states.
+- A wrong choice should produce a gentle reaction and invite another try; never punish or block the child.
+- Teach by synchronized motion, matching appearance, spatial placement, and a short silent demonstration.
+- Each activity must have a distinct interaction—not three reskinned tap-the-answer quizzes.
+- Keep a round short. It should reach a satisfying reaction within a few seconds and a larger celebration within about a minute.
+- Use sound effects only. Do not add narration, spoken instructions, music, autoplay audio, ads, analytics, or external tracking.
+- Keep the tanuki's home position intentional for each scene. It may animate between authored positions, but it must not follow the pointer or cover the active object.
+- Prefer playful physical metaphors: shake, roll, reveal, feed, sort, open, stack, or guide.
+- Do not expose an answer with a permanent “correct option” outline. Hints should demonstrate the action or relationship and may become more explicit after inactivity.
 
-## Coding Style & Naming Conventions
+## Architecture and repository layout
 
-Adopt the standard formatter and linter for the chosen language, commit their configuration, and run them before review. Use spaces unless the formatter requires otherwise. Choose descriptive names: `PascalCase` for types, `camelCase` for functions and variables, and lowercase kebab-case for documentation and asset filenames. Avoid broad formatting changes in feature commits.
+- `src/`: application HTML, CSS, JavaScript, and game logic.
+- `assets/`: checked-in production artwork and sprite sheets.
+- `public/`: static deployment files such as the manifest and service worker.
+- `tests/`: deterministic tests that mirror observable game behavior.
+- `scripts/`: build and validation utilities.
+- `docs/`: product design, activity specifications, visual rules, and maintenance notes for humans and agents.
+- `dist/`: generated release output; never edit it directly.
 
-## Testing Guidelines
+The app must remain deployable as static files on GitHub Pages. Avoid servers, secrets, databases, network-dependent gameplay, and runtime CDN dependencies. Small focused modules are preferred, but restructuring is allowed when it materially improves the product.
 
-Add tests with every behavior change and regression fix. Mirror source organization under `tests/`, and name tests after observable behavior (for example, `creates_account_with_valid_input`). Tests should be deterministic and must not depend on developer-specific paths, credentials, or network access unless explicitly marked as integration tests.
+## Implementation conventions
 
-## Commit & Pull Request Guidelines
+- Use semantic HTML and modern browser-native JavaScript/CSS unless a dependency clearly earns its cost.
+- Keep game rules and session progression testable without a DOM.
+- Centralize activity metadata, timings, and round content rather than scattering magic values.
+- Use `PascalCase` for classes/types and `camelCase` for functions and variables.
+- Asset and documentation names use lowercase kebab-case.
+- Respect `prefers-reduced-motion` and the in-app reduced-motion setting.
+- Handle touch with Pointer Events and prevent accidental page scrolling only inside active play surfaces.
+- Account for iPad safe areas and dynamic viewport units.
+- Preserve offline behavior. Bump the service-worker cache version whenever shipped static assets or application files change.
+- Never commit secrets or user-specific absolute paths.
 
-No Git history is available to infer an existing convention. Use short, imperative commit subjects such as `Add account validation`, with focused commits that build and test independently. Pull requests should explain the motivation, summarize changes, list verification performed, and link relevant issues. Include screenshots or recordings for visible UI changes, and call out configuration or migration steps.
+## Required quality loop
 
-## Security & Configuration
+For every material gameplay or layout change:
 
-Never commit secrets, signing keys, or local environment files. Provide sanitized examples such as `.env.example`, validate required configuration at startup, and review new dependencies before adoption.
+1. Update `docs/game-design.md` when the interaction, learning goal, or visual grammar changes.
+2. Add or update deterministic tests for game rules and progression.
+3. Run `npm test`, `npm run lint`, and `npm run build`.
+4. Run `git diff --check`.
+5. Exercise the complete journey in a browser, including wrong interactions, all rounds, completion, and parent settings.
+6. Inspect screenshots at representative iPad portrait and landscape sizes. Check overlap, clipping, safe areas, target size, and tanuki placement.
+7. Verify the production URL after deployment, not only the local build.
+
+Do not call an activity complete merely because it works technically. Iterate until its objective, action, feedback, and completion are legible from motion alone.
+
+## Common commands
+
+- `npm run dev`: serve the local release for browser testing.
+- `npm test`: run all deterministic tests.
+- `npm run lint`: run syntax and static checks.
+- `npm run build`: produce `dist/`.
+
+If these commands change, update this file and the README in the same change.
+
+## Documentation contract
+
+`docs/game-design.md` is the source of truth for the current product and activity design. It must explain:
+
+- the audience and nonverbal design principles;
+- the learning objective and unique input mechanic of every activity;
+- round structure and content progression;
+- correct, incorrect, idle-hint, and completion feedback;
+- tanuki staging and animation intent;
+- visual, audio, accessibility, persistence, and testing requirements.
+
+When code and documentation disagree, either bring the code back to the documented design or deliberately update the design document and explain why.

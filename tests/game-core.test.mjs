@@ -3,17 +3,20 @@ import assert from "node:assert/strict";
 
 import {
   ACTIVITY_ORDER,
-  COLORS,
+  ANIMALS,
+  FRUITS,
   ROUNDS_PER_ACTIVITY,
-  SHAPES,
+  VEGETABLES,
   advanceRound,
   clamp,
-  createColorRound,
-  createCountRound,
+  createAnimalRound,
+  createFruitRound,
   createRound,
-  createShapeRound,
+  createVegetableRound,
+  dragProgress,
   getActivityOrder,
   loadSavedState,
+  normalizeActivityPreference,
   shuffle,
 } from "../src/game-core.js";
 
@@ -23,42 +26,66 @@ test("shuffle preserves every option without mutating the input", () => {
   assert.deepEqual(source, [1, 2, 3, 4]);
 });
 
-test("every color round has three targets and three distractors", () => {
+test("the authored catalogs contain every requested fruit, vegetable, and animal", () => {
+  assert.deepEqual(FRUITS.map((item) => item.id), [
+    "apple", "orange", "grape", "peach", "cherry", "lemon", "strawberry", "watermelon", "banana",
+  ]);
+  assert.deepEqual(VEGETABLES.map((item) => item.id), [
+    "daikon", "cabbage", "pumpkin", "carrot", "onion", "edamame", "cucumber", "eggplant", "sweet-potato",
+  ]);
+  assert.deepEqual(ANIMALS.map((item) => item.id), [
+    "dog", "cat", "panda", "lion", "elephant", "giraffe", "hippo", "monkey", "zebra", "camel", "pig", "bird",
+  ]);
+});
+
+test("fruit rounds contain unique discoverable fruit instances", () => {
   for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
-    const round = createColorRound(roundIndex, () => 0.42);
-    assert.equal(round.items.length, 6);
-    assert.equal(round.items.filter((item) => item.isTarget).length, 3);
-    assert.equal(round.items.filter((item) => !item.isTarget).length, 3);
-    assert.ok(COLORS.includes(round.target));
+    const round = createFruitRound(roundIndex, () => 0.42);
+    assert.equal(round.activity, "fruit");
+    assert.equal(round.items.length, 3);
+    assert.equal(new Set(round.items.map((item) => item.instanceId)).size, round.items.length);
+    assert.ok(round.items.every((item) => FRUITS.some((fruit) => fruit.id === item.id)));
   }
 });
 
-test("shape rounds rotate targets and contain one match", () => {
-  SHAPES.forEach((shape, roundIndex) => {
-    const round = createShapeRound(roundIndex, () => 0.31);
-    assert.equal(round.target, shape);
-    assert.equal(round.options.filter((option) => option.isTarget).length, 1);
-  });
+test("vegetable rounds contain pullable produce and grow in complexity", () => {
+  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
+    const round = createVegetableRound(roundIndex, () => 0.31);
+    assert.equal(round.activity, "vegetable");
+    assert.equal(round.items.length, 3);
+    assert.ok(round.items.every((item) => VEGETABLES.some((vegetable) => vegetable.id === item.id)));
+    assert.ok(round.items.every((item) => item.pull > 0 && item.pull <= 1));
+  }
 });
 
-test("count rounds visibly represent quantities one through three", () => {
-  [1, 2, 3].forEach((quantity, roundIndex) => {
-    const round = createCountRound(roundIndex);
-    assert.equal(round.target, quantity);
-    assert.equal(round.items.length, quantity);
-  });
+test("animal rounds feature all twelve requested animals exactly once", () => {
+  const featured = [];
+  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
+    const round = createAnimalRound(roundIndex);
+    assert.equal(round.activity, "animal");
+    assert.equal(round.animals.length, 4);
+    assert.equal(round.stepCount, 4);
+    assert.ok(["garden", "savanna", "world"].includes(round.scene));
+    featured.push(...round.animals.map((animal) => animal.id));
+  }
+  assert.deepEqual(featured.toSorted(), ANIMALS.map((animal) => animal.id).toSorted());
+  assert.equal(new Set(featured).size, 12);
 });
 
-test("round factory rejects unknown activities", () => {
-  assert.equal(createRound("color", 0, () => 0.2).activity, "color");
-  assert.equal(createRound("shape", 0, () => 0.2).activity, "shape");
-  assert.equal(createRound("count", 0).activity, "count");
+test("round factory creates only the three physical-play activities", () => {
+  assert.equal(createRound("fruit", 0, () => 0.2).activity, "fruit");
+  assert.equal(createRound("vegetable", 0, () => 0.2).activity, "vegetable");
+  assert.equal(createRound("animal", 0).activity, "animal");
   assert.throws(() => createRound("unknown", 0), /Unknown activity/);
 });
 
-test("activity preference produces either the full journey or one activity", () => {
+test("activity preference supports one theme and migrates legacy names", () => {
   assert.deepEqual(getActivityOrder("all"), ACTIVITY_ORDER);
-  assert.deepEqual(getActivityOrder("shape"), ["shape"]);
+  assert.deepEqual(getActivityOrder("vegetable"), ["vegetable"]);
+  assert.equal(normalizeActivityPreference("color"), "fruit");
+  assert.equal(normalizeActivityPreference("shape"), "vegetable");
+  assert.equal(normalizeActivityPreference("count"), "animal");
+  assert.equal(normalizeActivityPreference("bad"), "all");
 });
 
 test("session advancement moves through rounds, activities, and finish", () => {
@@ -82,17 +109,19 @@ test("session advancement moves through rounds, activities, and finish", () => {
   });
 });
 
-test("saved state is sanitized and never enables speech", () => {
-  const loaded = loadSavedState('{"sound":false,"activity":"bad"}', '{"sessions":"4"}', true);
+test("drag progress is normalized and safe at invalid boundaries", () => {
+  assert.equal(dragProgress(-20, 100), 0);
+  assert.equal(dragProgress(50, 100), 0.5);
+  assert.equal(dragProgress(120, 100), 1);
+  assert.equal(dragProgress(50, 0), 0);
+  assert.equal(clamp(20, 0, 10), 10);
+});
+
+test("saved state is sanitized, migrated, and never enables speech", () => {
+  const loaded = loadSavedState('{"sound":false,"activity":"shape"}', '{"sessions":"4.8"}', true);
   assert.deepEqual(loaded, {
-    settings: { sound: false, reduceMotion: true, activity: "all" },
+    settings: { sound: false, reduceMotion: true, activity: "vegetable" },
     progress: { sessions: 4 },
   });
   assert.equal("voice" in loaded.settings, false);
-});
-
-test("clamp keeps actor movement inside the viewport range", () => {
-  assert.equal(clamp(-20, 0, 10), 0);
-  assert.equal(clamp(5, 0, 10), 5);
-  assert.equal(clamp(20, 0, 10), 10);
 });
