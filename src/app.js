@@ -1,7 +1,6 @@
 import {
   ROUNDS_PER_ACTIVITY,
   advanceRound,
-  clamp,
   createRound,
   getActivityOrder,
   loadSavedState,
@@ -72,7 +71,7 @@ const ACTIVITY_META = {
 };
 
 const COLOR_POSITIONS = [
-  [13, 34], [39, 31], [70, 34], [19, 58], [54, 54], [80, 59],
+  [14, 26], [37, 30], [63, 30], [86, 26], [18, 53], [82, 53],
 ];
 
 const COUNT_POSITIONS = {
@@ -96,6 +95,13 @@ function setPose(element, pose) {
 function setActorPose(pose) {
   setPose(elements.actor, pose);
   elements.actor.classList.toggle("is-jumping", pose === "jump");
+}
+
+function setActorHome(activity = state.activities[state.activityIndex]) {
+  elements.actor.classList.remove("facing-left", "is-reaching");
+  state.actorX = activity === "shape" ? -window.innerWidth * 0.16 : 0;
+  updateActorPosition();
+  setActorPose(activity === "shape" ? "wave" : "basket");
 }
 
 function startHomeAnimation() {
@@ -194,9 +200,7 @@ function addRoundPips(container, completed = 0) {
 }
 
 function renderColorRound() {
-  setActorPose("basket");
-  state.actorX = 0;
-  updateActorPosition();
+  setActorHome("color");
   const layer = document.createElement("div");
   layer.className = "color-world";
 
@@ -214,6 +218,7 @@ function renderColorRound() {
     const [left, top] = COLOR_POSITIONS[index];
     button.type = "button";
     button.className = "berry-button";
+    button.classList.toggle("is-match", item.isTarget);
     button.style.setProperty("--left", `${left}%`);
     button.style.setProperty("--top", `${top}%`);
     button.style.setProperty("--berry", item.color.value);
@@ -226,7 +231,7 @@ function renderColorRound() {
   });
 
   elements.activityLayer.append(layer);
-  if (state.roundIndex === 0) showTapHint(targetButtons[0]);
+  showTapHint(targetButtons[0]);
 }
 
 function chooseBerry(button, item) {
@@ -247,7 +252,10 @@ function chooseBerry(button, item) {
 
   button.disabled = true;
   state.busy = true;
-  moveActorToward(button, "run");
+  const berryRect = button.getBoundingClientRect();
+  elements.actor.classList.toggle("facing-left", berryRect.left + berryRect.width / 2 < window.innerWidth / 2);
+  elements.actor.classList.add("is-reaching");
+  setActorPose("reach");
   playSound("dash");
   window.setTimeout(() => {
     setActorPose("basket");
@@ -257,6 +265,7 @@ function chooseBerry(button, item) {
       slots[state.collected - 1]?.classList.add("is-filled");
       playSound("collect", state.collected);
       burstAtElement(button, item.color.value, 9);
+      elements.actor.classList.remove("facing-left", "is-reaching");
       state.busy = false;
       if (state.collected >= state.round.targetCount) completeRound();
     });
@@ -264,9 +273,7 @@ function chooseBerry(button, item) {
 }
 
 function renderShapeRound() {
-  setActorPose("wave");
-  state.actorX = -window.innerWidth * 0.16;
-  updateActorPosition();
+  setActorHome("shape");
   const layer = document.createElement("div");
   layer.className = "shape-world";
 
@@ -284,6 +291,7 @@ function renderShapeRound() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `shape-piece shape-${option.id}`;
+    button.classList.toggle("is-match", option.isTarget);
     button.dataset.shape = option.id;
     button.dataset.originalLeft = String(optionPositions[index]);
     button.style.setProperty("--left", `${optionPositions[index]}%`);
@@ -295,7 +303,7 @@ function renderShapeRound() {
   });
 
   elements.activityLayer.append(layer);
-  if (state.roundIndex === 0) showDragHint(correctButton, target);
+  showDragHint(correctButton, target);
 }
 
 function installShapeDrag(button, isTarget) {
@@ -316,7 +324,6 @@ function installShapeDrag(button, isTarget) {
     button.setPointerCapture(event.pointerId);
     button.classList.add("is-held");
     setActorPose("push");
-    moveActorToClientX(event.clientX - 80);
     playSound("pickup");
   });
 
@@ -327,7 +334,6 @@ function installShapeDrag(button, isTarget) {
     moved ||= Math.hypot(deltaX, deltaY) > 10;
     button.style.setProperty("--drag-x", `${deltaX}px`);
     button.style.setProperty("--drag-y", `${deltaY}px`);
-    moveActorToClientX(event.clientX - 90);
   });
 
   button.addEventListener("pointerup", (event) => {
@@ -363,7 +369,6 @@ function snapShapeIntoTarget(button, target) {
   button.classList.add("is-snapping");
   button.style.setProperty("--drag-x", `${targetX}px`);
   button.style.setProperty("--drag-y", `${targetY}px`);
-  moveActorToClientX(targetRect.left + targetRect.width / 2 - 100);
   setActorPose("push");
   playSound("slide");
 
@@ -383,13 +388,14 @@ function returnShape(button, wasCorrectShape) {
   button.style.setProperty("--drag-y", "0px");
   setActorPose(wasCorrectShape ? "reach" : "wave");
   playSound("boop");
-  window.setTimeout(() => button.classList.remove("is-returning"), 380);
+  window.setTimeout(() => {
+    button.classList.remove("is-returning");
+    setActorHome("shape");
+  }, 380);
 }
 
 function renderCountRound() {
-  setActorPose("basket");
-  state.actorX = 0;
-  updateActorPosition();
+  setActorHome("count");
   const layer = document.createElement("div");
   layer.className = "count-world";
 
@@ -415,7 +421,7 @@ function renderCountRound() {
   });
 
   elements.activityLayer.append(layer);
-  if (state.roundIndex === 0) showTapHint(buttons[0], true);
+  showTapHint(buttons[0], true);
 }
 
 function collectAcorn(button) {
@@ -424,7 +430,10 @@ function collectAcorn(button) {
   ensureAudio();
   state.busy = true;
   button.disabled = true;
-  moveActorToward(button, "run");
+  const acornRect = button.getBoundingClientRect();
+  elements.actor.classList.toggle("facing-left", acornRect.left + acornRect.width / 2 < window.innerWidth / 2);
+  elements.actor.classList.add("is-reaching");
+  setActorPose("reach");
   playSound("dash");
   window.setTimeout(() => {
     setActorPose("reach");
@@ -436,6 +445,7 @@ function collectAcorn(button) {
       playSound("count", state.collected);
       burstAtElement(slot, "#d89343", 8);
       state.busy = false;
+      elements.actor.classList.remove("facing-left", "is-reaching");
       setActorPose("basket");
       if (state.collected >= state.round.target) completeRound();
     });
@@ -483,20 +493,6 @@ function returnHome() {
 
 function updateActorPosition() {
   elements.actor.style.setProperty("--actor-x", `${state.actorX}px`);
-}
-
-function moveActorToward(element, pose = "run") {
-  const rect = element.getBoundingClientRect();
-  moveActorToClientX(rect.left + rect.width / 2);
-  setActorPose(pose);
-  elements.actor.classList.toggle("facing-left", state.actorX < 0);
-}
-
-function moveActorToClientX(clientX) {
-  const max = window.innerWidth * 0.34;
-  state.actorX = clamp(clientX - window.innerWidth / 2, -max, max);
-  updateActorPosition();
-  elements.actor.classList.toggle("facing-left", state.actorX < 0);
 }
 
 function flyToActor(element, onFinish) {
@@ -723,9 +719,9 @@ window.addEventListener("resize", () => { if (state.screen === "game") updateAct
 if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
   let refreshing = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (refreshing || sessionStorage.getItem("ponpoko-sw-v2-reloaded")) return;
+    if (refreshing || sessionStorage.getItem("ponpoko-sw-v3-reloaded")) return;
     refreshing = true;
-    sessionStorage.setItem("ponpoko-sw-v2-reloaded", "1");
+    sessionStorage.setItem("ponpoko-sw-v3-reloaded", "1");
     window.location.reload();
   });
   window.addEventListener("load", () => navigator.serviceWorker.register("./service-worker.js").catch(() => {}));

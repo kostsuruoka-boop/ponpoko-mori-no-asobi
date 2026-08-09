@@ -1,4 +1,4 @@
-const CACHE_NAME = "ponpoko-adventure-v2";
+const CACHE_NAME = "ponpoko-adventure-v3";
 const APP_FILES = [
   "./",
   "./index.html",
