@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="たぬきの顔">
+  <rect width="512" height="512" rx="112" fill="#dfead0"/>
+  <circle cx="154" cy="160" r="78" fill="#704426"/>
+  <circle cx="358" cy="160" r="78" fill="#704426"/>
+  <circle cx="154" cy="160" r="43" fill="#e0a367"/>
+  <circle cx="358" cy="160" r="43" fill="#e0a367"/>
+  <path d="M104 290c0-120 67-200 152-200s152 80 152 200c0 96-62 158-152 158S104 386 104 290Z" fill="#b96f35"/>
+  <path d="M135 270c14-73 57-117 121-117s107 44 121 117c-26-33-66-49-121-49s-95 16-121 49Z" fill="#e9b97f"/>
+  <path d="M129 267c31-42 77-50 109-19-20 62-65 85-108 57-11-7-12-24-1-38Z" fill="#59351f"/>
+  <path d="M383 267c-31-42-77-50-109-19 20 62 65 85 108 57 11-7 12-24 1-38Z" fill="#59351f"/>
+  <circle cx="192" cy="276" r="22" fill="#fff"/>
+  <circle cx="320" cy="276" r="22" fill="#fff"/>
+  <circle cx="192" cy="280" r="13" fill="#33251d"/>
+  <circle cx="320" cy="280" r="13" fill="#33251d"/>
+  <circle cx="187" cy="274" r="5" fill="#fff"/>
+  <circle cx="315" cy="274" r="5" fill="#fff"/>
+  <ellipse cx="256" cy="328" rx="68" ry="58" fill="#f4d7ad"/>
+  <path d="M236 317c0-12 9-20 20-20s20 8 20 20c0 10-8 18-20 18s-20-8-20-18Z" fill="#38261d"/>
+  <path d="M256 335v13m0 0c-12 0-22 6-29 15m29-15c12 0 22 6 29 15" fill="none" stroke="#38261d" stroke-width="9" stroke-linecap="round"/>
+</svg>
