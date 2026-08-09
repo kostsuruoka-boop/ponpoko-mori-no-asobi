@@ -1,13 +1,13 @@
 {
   "name": "ponpoko-mori-no-asobi",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "たぬきと果物・野菜・動物で遊ぶ1〜2歳向け知育Webゲーム",
+  "description": "たぬきと農園・動物・ひらがな・ABCで遊ぶiPad向け知育Webゲーム",
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.mjs",
-    "lint": "node --check src/app.js && node --check src/game-core.js && node --check scripts/build.mjs && node --check public/service-worker.js",
+    "lint": "node --check src/app.js && node --check src/audio.js && node --check src/game-core.js && node --check scripts/build.mjs && node --check public/service-worker.js",
     "dev": "npm run build && python3 -m http.server 4173 -d dist"
   },
   "engines": {

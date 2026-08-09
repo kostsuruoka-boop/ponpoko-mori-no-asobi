@@ -1,9 +1,10 @@
-const CACHE_NAME = "ponpoko-adventure-v4";
+const CACHE_NAME = "ponpoko-adventure-v5";
 const APP_FILES = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./audio.js",
   "./game-core.js",
   "./manifest.webmanifest",
   "./icon.svg",

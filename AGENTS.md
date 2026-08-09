@@ -20,8 +20,9 @@ Use this order when trade-offs arise:
 - A wrong choice should produce a gentle reaction and invite another try; never punish or block the child.
 - Teach by synchronized motion, matching appearance, spatial placement, and a short silent demonstration.
 - Each activity must have a distinct interaction—not three reskinned tap-the-answer quizzes.
+- A completed object or match stays visibly in the scene. A completed board must remain until the child explicitly presses the large next control; never auto-dismiss the result.
 - Keep a round short. It should reach a satisfying reaction within a few seconds and a larger celebration within about a minute.
-- Use sound effects only. Do not add narration, spoken instructions, music, autoplay audio, ads, analytics, or external tracking.
+- Use gentle action sounds for physical feedback. Vocabulary names and letter sounds are allowed only when they are the learning content; do not use spoken instructions, narration, music, ads, analytics, or external tracking.
 - Keep the tanuki's home position intentional for each scene. It may animate between authored positions, but it must not follow the pointer or cover the active object.
 - Prefer playful physical metaphors: shake, roll, reveal, feed, sort, open, stack, or guide.
 - Do not expose an answer with a permanent “correct option” outline. Hints should demonstrate the action or relationship and may become more explicit after inactivity.
@@ -49,6 +50,7 @@ The app must remain deployable as static files on GitHub Pages. Avoid servers, s
 - Handle touch with Pointer Events and prevent accidental page scrolling only inside active play surfaces.
 - Account for iPad safe areas and dynamic viewport units.
 - Preserve offline behavior. Bump the service-worker cache version whenever shipped static assets or application files change.
+- Every timer, Pointer Event listener, Web Animation, particle, and delayed callback belongs to one scene lifecycle. Leaving or restarting a scene must invalidate all prior callbacks before new state is created.
 - Never commit secrets or user-specific absolute paths.
 
 ## Required quality loop
@@ -59,7 +61,7 @@ For every material gameplay or layout change:
 2. Add or update deterministic tests for game rules and progression.
 3. Run `npm test`, `npm run lint`, and `npm run build`.
 4. Run `git diff --check`.
-5. Exercise the complete journey in a browser, including wrong interactions, all rounds, completion, and parent settings.
+5. Exercise the complete journey in a browser, including wrong interactions, all rounds, completion, parent settings, repeated sessions, and leaving during an active animation.
 6. Inspect screenshots at representative iPad portrait and landscape sizes. Check overlap, clipping, safe areas, target size, and tanuki placement.
 7. Verify the production URL after deployment, not only the local build.
 

@@ -13,7 +13,7 @@ await mkdir(outputDirectory, { recursive: true });
 await cp(path.join(projectRoot, "assets"), path.join(outputDirectory, "assets"), { recursive: true });
 await cp(path.join(projectRoot, "public"), outputDirectory, { recursive: true });
 
-for (const file of ["index.html", "styles.css", "app.js", "game-core.js"]) {
+for (const file of ["index.html", "styles.css", "app.js", "audio.js", "game-core.js"]) {
   await cp(path.join(projectRoot, "src", file), path.join(outputDirectory, file));
 }
 

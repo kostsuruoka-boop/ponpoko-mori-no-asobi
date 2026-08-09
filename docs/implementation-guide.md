@@ -1,103 +1,157 @@
 # 実装・引き継ぎガイド
 
-この文書は、別のコーディングエージェントまたは開発者が、安全にゲームを改修するための技術的な入口である。体験仕様は `docs/game-design.md`、作業上の品質基準は `AGENTS.md` を正とする。
+この文書は、別のコーディングエージェントまたは開発者が現行ゲームを安全に改修するための技術的な入口である。体験仕様は`docs/game-design.md`、品質基準は`AGENTS.md`を正とする。
 
 ## 実行モデル
 
-アプリはサーバー処理を持たないES Modulesベースの静的PWAである。
+サーバー処理やランタイム外部依存を持たないES Modulesベースの静的PWAである。
 
-- `src/game-core.js`: DOMに依存しないテーマ、ラウンド、進行、保存値の検証
-- `src/app.js`: 画面状態、Pointer Events、演出、Web Audio、保護者設定
-- `src/index.html`: 固定画面、HUD、ダイアログ、共通レイヤー
-- `src/styles.css`: 全画面シーン、スプライト、レスポンシブ、安全領域、アニメーション
-- `assets/`: 画像スプライト
+- `src/game-core.js`: 4モードのカタログ、ラウンド、文字カリキュラム、保存値検証、座標補助
+- `src/audio.js`: Web Audio効果音とSpeech Synthesis音声を担当する`AudioDirector`
+- `src/app.js`: 画面状態、シーン寿命、Pointer Events、DOM、演出、保存、保護者設定
+- `src/index.html`: ホーム、ゲーム、完成、保護者ダイアログの固定骨格
+- `src/styles.css`: 4モード、スプライト、縦横レイアウト、安全領域、アニメーション
+- `assets/`: たぬき、果物、野菜、動物の画像スプライト
 - `public/service-worker.js`: オフラインキャッシュ
 - `scripts/build.mjs`: `src`、`assets`、`public`から`dist`を生成
-- `tests/game-core.test.mjs`: ラウンドデータと進行の回帰試験
+- `tests/game-core.test.mjs`: DOM非依存のデータと進行の回帰試験
 
-`dist/`は生成物であり、直接編集しない。
+`dist/`は生成物なので直接編集しない。
 
 ## 状態遷移
 
 ```text
 home
-  └─ startSession
+  └─ mode card (farm | animal | hiragana | alphabet)
       └─ activity intro
-          └─ round 0 → round 1 → round 2
-              ├─ next activity intro
-              └─ finish
+          └─ round 0 complete board ─ user next
+              └─ round 1 complete board ─ user next
+                  └─ round 2 complete board ─ user finish
+                      └─ mode-specific finish
+                          ├─ replay same mode
+                          └─ home / choose another mode
 
-parent dialog は home / game / finish の上に独立して開く。
+parent dialogはhome / gameの上に独立して開く。
 ```
 
-ゲーム内の一時状態はアクティビティごとにDOM要素へ保持せず、`state`とラウンドデータを基準にする。ラウンド切替時はイベント、タイマー、ヒントを必ず破棄する。
+モードを連結した長い自動セッションにはしない。子どもがホームの4カードから直接選び、3ラウンドで一度完結させる。
 
-## 入力実装の規則
+## シーンライフサイクル
 
-- `pointerdown`で操作開始、`pointermove`で即時追従、`pointerup`/`pointercancel`で確定または安全に復帰する。
-- 子どもの指は大きく、座標は不正確である。見た目より広いヒット領域を用意する。
-- ドラッグ距離はCSSピクセルの固定値だけでなく、対象サイズとviewportの小さい方を使って正規化する。
-- タップ救済は本来の操作を置き換えず、同じ物理表現を短縮して実行する。
-- 連続タッチや2本指で状態が壊れないよう、アクティブなpointerIdを1つに限定する。
-- ラウンド完了中は入力をロックし、演出終了後に明示的に解除する。
+複数回プレイ時の画面破綻を防ぐ最重要部分である。
 
-## アニメーション実装の規則
+`clearRuntime()`は次の順で旧シーンを無効化する。
 
-- 重要な移動はWeb Animations APIで完了イベントを受け、タイマーだけに依存しない。
-- 装飾的な反復はCSS animationを使用する。
-- `reduceMotion`では移動距離と粒子数を減らすが、操作と結果の順番は保持する。
-- たぬきの位置はアクティビティ開始時に名前付きのホーム位置へ設定する。pointer座標へ追従させない。
+1. `state.lifecycle`を増加する。
+2. 現在の`AbortController`をabortし、Pointer Eventを解除する。
+3. 追跡中の全`setTimeout`をclearする。
+4. 追跡中の全Web Animationをcancelする。
+5. ヒント、粒子、ラウンド完了UIを消す。
+6. 再生中の効果音とSpeech Synthesisキューを止める。
+
+`schedule()`は作成時のlifecycleを閉包し、番号が一致する場合だけcallbackを実行する。Web Animationも同じ番号を確認してから完了処理を呼ぶ。画面切替後の古い処理を直接呼ぶタイマーや`animation.finished`を追加してはいけない。
+
+## ラウンド生成
+
+`createRound(activity, roundIndex, options)`だけを入口にする。
+
+- `farm`: 6個の作物と生育場所を返す。3ラウンドで18種類を重複なく扱う。
+- `animal`: 4匹と、別順序へshuffleした4個の影を返す。
+- `hiragana` / `alphabet`: 保存された開始位置から3文字と、各文字の3択を返す。
+
+文字カリキュラムはセッション完了時だけ`nextCurriculumIndex()`で9進める。途中離脱では進めない。
+
+## Pointer Eventの規則
+
+- `pointerdown`で1つの`pointerId`を保持し、`setPointerCapture()`する。
+- `pointermove`では`--drag-x`と`--drag-y`だけを更新し、指へ即時追従させる。
+- `pointerup` / `pointercancel`の両方を同じ終了関数へ接続する。
+- 正解判定後は`state.busy`で並行入力を止め、永続表示先へ移動してから解除する。
+- ドロップ判定は`isPointInsideRect()`のpaddingを使い、見た目より24〜35px広くする。
+- 操作不足は元の場所へ戻し、減点しない。
+- 全ラウンドイベントへ`state.roundAbort.signal`を渡す。
+
+### 救済入力
+
+- 農園: 同じ作物を2回タップ
+- 動物: 同じ動物を2回タップ
+- 文字: 見本と同じ文字を1回タップ
+
+救済入力は本来のドラッグを置き換える主操作ではない。最初のアイドルヒントは必ずドラッグを実演する。
+
+## 永続する完成盤
+
+操作対象を消して終わらせない。
+
+- 農園: `harvest-slot`へ作物のクローンを追加する。
+- 動物: `animal-home`内の影を消し、カラー動物を表示する。
+- 文字: `letter-slot`へ字形を追加する。
+
+最後の1個が入った後もDOMを維持し、`#round-complete`の大きな次ボタンだけを重ねる。自動で`renderRound()`を呼ばない。
+
+## AudioDirector
+
+`src/audio.js`は設定値をgetterで受け取り、効果音と音声を分離する。
+
+- `play(kind)`: Web Audio APIで短い音を生成する。
+- `speak(text, lang)`: 対象言語のローカルvoiceを優先し、Speech Synthesisへ1件だけ送る。
+- `stop()`: 追跡中sourceと音声キューを停止する。
+
+音声は学習対象の名前・文字だけに使う。操作説明文を読み上げない。ABCへは`en-US`、それ以外へは`ja-JP`を指定する。
+
+## たぬき配置
+
+モードごとの基準位置は`ACTIVITY_META`に置く。`positionActor()`が実際のsprite幅とviewport幅から左右8pxの安全域へclampする。端末回転時にも再計算する。
+
+ポーズは`setPose()`を通して入れ替え、古い`pose-*`を必ず除去する。成功時の`reactTanuki()`はポーズ、ジャンプ、感情バブルを同期させる。対象物をpointer座標へ追従させる用途には使わない。
 
 ## スプライト規約
 
-たぬきは3列×2行、果物と野菜は3列×3行、動物は3列×4行である。CSSの背景サイズはそれぞれ`300% 200%`、`300% 300%`、`300% 400%`にする。たぬきの例は以下のとおり。
+- たぬき: 3列×2行、`background-size: 300% 200%`
+- 果物・野菜: 3列×3行、`background-size: 300% 300%`
+- 動物: 3列×4行、`background-size: 300% 400%`
 
-```css
-.sprite {
-  background-repeat: no-repeat;
-  background-size: 300% 200%;
-}
+ゲームロジックから数値セルを渡さず、`cell-apple`、`cell-elephant`の意味クラスを使う。文字は画像にせず、端末の丸ゴシック系fontで描画する。
 
-.cell-0 { background-position: 0% 0%; }
-.cell-1 { background-position: 50% 0%; }
-.cell-2 { background-position: 100% 0%; }
-.cell-3 { background-position: 0% 100%; }
-.cell-4 { background-position: 50% 100%; }
-.cell-5 { background-position: 100% 100%; }
-```
+## 保存形式
 
-3列×3行は縦位置を`0% / 50% / 100%`、3列×4行は`0% / 33.333% / 66.667% / 100%`として、`src/styles.css`の名前付きセルクラスで管理する。ゲームロジックから数値セルを直接CSSへ渡さず、`cell-apple`や`cell-elephant`のような意味のあるクラスを使う。
+現在のキーは次のとおり。
 
-画像生成後は透明角、被写体占有率、各セルのはみ出し、色かぶりを検査する。スプライト位置が不均等な場合はCSSで無理に補正せず、素材を再生成する。
+- `ponpoko-adventure-settings-v5`: `effects`、`voice`、`reduceMotion`
+- `ponpoko-adventure-progress-v5`: `sessions`、モード別`completed`、`curriculum.hiragana`、`curriculum.alphabet`
 
-## テスト追加の目安
+`loadSavedState()`で旧v3の`sound`を`effects`と`voice`へ移行する。壊れたJSON、負数、範囲外カリキュラムを常に正規化する。
 
-最低限、次を純粋関数の試験で固定する。
+## テスト
 
-- アクティビティ順と保護者設定のテーマ絞り込み
-- 各ラウンドの種類、個数、IDの一意性
-- 3ラウンドで指定された動物12種が重複なくすべて登場すること
-- 全ラウンドおよび全アクティビティの遷移
-- 旧設定値を含む保存データの安全な読み込み
-- ドラッグ進捗の境界値を計算する補助関数
+純粋関数試験では最低限次を固定する。
 
-ブラウザ試験では、正規ジェスチャーとタップ救済の両方、途中で離した場合、連打、全完了、設定画面を確認する。
+- 指定された果物9、野菜9、動物12の完全な一覧
+- 3農園ラウンドで18種類が1回ずつ登場すること
+- きゅうり・ぶどうが棚、根菜だけが土中などの生育場所
+- 3動物ラウンドで12種類が1回ずつ登場し、影との集合が一致すること
+- ひらがな46文字、英字26文字と大文字・小文字
+- 全文字の3択に正解が1個だけ含まれること
+- カリキュラムの周回、保存値移行、ドラッグ座標境界
+
+ブラウザ通し試験では次を縦横両方で実行する。
+
+1. 4モードを正規ドラッグと救済入力の両方で完走。
+2. 各完成盤に6作物、4動物、3文字が残ること。
+3. 農園18、動物12、ひらがな9、ABC9を1セッションで処理。
+4. 収集アニメーション中にホームへ戻り、別モードを開始。
+5. 旧callbackが新モードへ割り込まないこと。
+6. たぬきの全身、overflow、保護者ゲート、保存回数を確認。
 
 ## リリース手順
 
 1. `docs/game-design.md`を実装に合わせる。
-2. Service Workerの`CACHE_NAME`を新しい版へ上げ、追加アセットを`APP_FILES`へ登録する。
+2. Service Workerの`CACHE_NAME`を上げ、追加モジュールを`APP_FILES`へ登録する。
 3. `npm test`
 4. `npm run lint`
 5. `npm run build`
 6. `git diff --check`
-7. iPad相当の横向き・縦向きで全操作試験とスクリーンショット確認
-8. 意図したファイルだけをcommit/push
+7. iPad相当の横向き・縦向きで完全通し試験とスクリーンショット確認
+8. 意図したファイルだけをcommit / push
 9. GitHub Actions完了を確認
-10. 公開URLを新規ブラウザプロファイルで通し試験
-
-## 既知の設計上の判断
-
-- フレームワークを使用していないのは、依存を減らすこと自体が目的ではなく、現在の規模ではブラウザー標準だけで明快に保守できるため。
-- ゲームは正解選択式ではない。教育要素は探索、因果関係、方向性、経路追従に置く。
-- 音声を使用しないため、ヒントの視覚同期を変更する場合は必ず幼児目線で再検証する。
+10. 公開URLを新規ブラウザプロファイルで再度完走
