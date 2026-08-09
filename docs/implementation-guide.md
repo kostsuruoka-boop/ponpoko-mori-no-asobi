@@ -1,157 +1,152 @@
-# 実装・引き継ぎガイド
+# 実装引き継ぎ
 
-この文書は、別のコーディングエージェントまたは開発者が現行ゲームを安全に改修するための技術的な入口である。体験仕様は`docs/game-design.md`、品質基準は`AGENTS.md`を正とする。
+設計の正本は [`game-design.md`](./game-design.md)、要求の正本は [`product-requirements.md`](./product-requirements.md)。
+このファイルは**なぜこの実装になっているか**を残す。特に、見た目からは理由がわからない決定を書く。
 
-## 実行モデル
+---
 
-サーバー処理やランタイム外部依存を持たないES Modulesベースの静的PWAである。
+## 1. iPadで「画面は出るがタップが全部効かない」問題
 
-- `src/game-core.js`: 4モードのカタログ、ラウンド、文字カリキュラム、保存値検証、座標補助
-- `src/audio.js`: Web Audio効果音とSpeech Synthesis音声を担当する`AudioDirector`
-- `src/app.js`: 画面状態、シーン寿命、Pointer Events、DOM、演出、保存、保護者設定
-- `src/index.html`: ホーム、ゲーム、完成、保護者ダイアログの固定骨格
-- `src/styles.css`: 4モード、スプライト、縦横レイアウト、安全領域、アニメーション
-- `assets/`: たぬき、果物、野菜、動物の画像スプライト
-- `public/service-worker.js`: オフラインキャッシュ
-- `scripts/build.mjs`: `src`、`assets`、`public`から`dist`を生成
-- `tests/game-core.test.mjs`: DOM非依存のデータと進行の回帰試験
+v5 の最大の不具合。原因は**JavaScriptが1行も走っていなかった**こと。
+HTMLとCSSだけで画面は完成するので、描画は正常に見えたまま全ボタンが死ぬ。
 
-`dist/`は生成物なので直接編集しない。
+対策は4段構えで、どれか1つが外れても復旧できるようにしてある。
 
-## 状態遷移
+### 1.1 ES Modules をやめ、単一のクラシックスクリプトにする
 
-```text
-home
-  └─ mode card (farm | animal | hiragana | alphabet)
-      └─ activity intro
-          └─ round 0 complete board ─ user next
-              └─ round 1 complete board ─ user next
-                  └─ round 2 complete board ─ user finish
-                      └─ mode-specific finish
-                          ├─ replay same mode
-                          └─ home / choose another mode
+`scripts/build.mjs` が `src/*.js` を依存順に連結し、`import` / `export` を剥がして
+1つのIIFEにまとめて `dist/app.js` を出力する。`index.html` は `<script defer src="./app.js">` で読む。
 
-parent dialogはhome / gameの上に独立して開く。
+理由: 古いiPadOSでは Service Worker 経由の `type="module"` 読み込みが失敗する事例があり、
+その場合モジュールが1つも評価されずイベント登録が全滅する。モジュール読み込みという失敗経路自体を消した。
+
+ビルドは出力を `node --check` にかけ、`import` が残っていないかも検査する。壊れたバンドルは娘のiPadではなくCIで落ちる。
+
+### 1.2 構文の下限を Safari 13.4 に固定
+
+使わないもの: `||=` `&&=` `??=`、`Array.prototype.at`、`replaceChildren`、
+`addEventListener` の `signal`、`Object.hasOwn`、`structuredClone`、`<dialog>`。
+CSSでは `inset` 短縮形、`aspect-ratio`、flexboxの `gap`、`translate`/`rotate`/`scale` 単独プロパティ、
+`:is()` `:where()` `:has()`、`color-mix()`、`svh`/`dvh` を使わない。
+
+古い1台のためにモダン構文を捨てるのは安い取引である。このゲームに新しいAPIが必要な処理はない。
+
+### 1.3 起動監視と自己修復
+
+`index.html` の先頭に、モダン構文を使わないクラシックスクリプトを置いている。
+エラーを記録し、5秒経っても `window.__ponpokoBooted` が立たなければ**画面に理由を出す**。
+「なおして もういちど」ボタンは Cache Storage と Service Worker を消して再読込する。
+
+これで「黙って動かない」状態が原理的になくなる。保護者メニューにも同じ再インストールボタンがある。
+
+### 1.4 Service Worker をアプリシェルだけ network-first にする
+
+HTML/CSS/JS はネットワーク優先、画像はキャッシュ優先。
+壊れたビルドがキャッシュに焼き付いて、外から直せなくなる事故を防ぐ。
+
+キャッシュ名は**ビルドが出力内容のSHA-256から自動生成**する（`ponpoko-<hash>`）。
+手でバージョンを上げ忘れて古い絵が出続ける事故を、人間の記憶に頼らず防ぐ。
+
+`localStorage` へのアクセスはすべて try/catch。Cookie ブロック環境で例外を投げても起動を止めない。
+
+---
+
+## 2. シーンの寿命
+
+`state.lifecycle` が世代番号。`clearRuntime()` がこれを進め、
+登録済みの `setTimeout` / `setInterval` / イベントリスナーをすべて破棄する。
+
+- `schedule()` はコールバック実行時に世代を照合し、古い世代なら何もしない。
+- `on()` で登録したリスナーは配列に控え、`clearRuntime()` で確実に外す（`AbortController` は使えないため）。
+- `animate()` も世代を照合してから `onFinish` を呼ぶ。
+
+アニメーション中にホームへ戻り、別モードを開く操作をブラウザ試験に含めている。
+
+---
+
+## 3. 質問（Quest）という単位
+
+「いま何を頼んでいるか」を `state.quest` が持つ。中身は
+対象ID、誤タップ数、最終操作時刻、ヒント段階、そして4つのコールバック
+（`announce` / `findTarget` / `onCorrect` / `onWrong`）。
+
+3モードはこの1つの仕組みに乗っている。ヒント段階の計算は `hintStage()` として
+DOMなしで試験できる純関数に切り出してある。
+
+**1問終わってから次の問題が出るまでの間、`state.quest` は `null`**。
+この空白がないと、答え終わった問題に対して次のタップが採点されてしまう
+（実際にブラウザ試験で見つけた不具合）。
+
+---
+
+## 4. 画像素材
+
+### 4.1 スプライトシートを分割している理由
+
+元素材は3×3や3×4のシートだが、CSS の `background-size: 300% 300%` で切り出すと
+端末の実サイズが格子の倍数にならないとき**隣のセルが数ピクセルはみ出す**。
+にんじんの横に大根の白い先端が浮かぶ、という形で実際に出た。
+
+`scripts/make-sprites.py` が1件1ファイルに切り出し、`background-size: contain` で使う。
+さらに、セル境界をまたいだ**孤立した断片を連結成分解析で除去**する
+（最大成分の6%未満を破棄）。さくらんぼの2粒やバナナの房は連結しているので残る。
+
+### 4.2 配布物
+
+`assets/*.png`（元シート）はリポジトリに残すが**配布しない**。
+`dist` には `assets/sprites/` だけを入れる。オフライン配信量が倍になるのを避けるため。
+
+### 4.3 アイコン
+
+`scripts/make-icons.py` がたぬきから `apple-touch-icon.png` と各サイズを生成する。
+iOSはPNGが無いとホーム画面アイコンにスクリーンショットを使う。
+
+---
+
+## 5. 生育地SVG
+
+`src/scenery.js` に手書きSVG。各生育地は 200×200 のビューボックスで、
+`height:100%; width:auto` で描くので**どんな区画の縦横比でも歪まない**。
+
+- `back`: 作物の背面（幹・樹冠・棚・土の奥）
+- `front`: 作物の前面（土の畝・手前の葉）
+- `anchorX` / `anchorY`: 作物を置く位置（％）
+- `scale`: 区画に対する作物の大きさ
+- `rise`: 収穫時に持ち上がる量（土物だけ大きい）
+
+作物ボタンは正方形（区画のSVGが正方形なので幅％＝高さ％が正方形になる）。
+
+---
+
+## 6. 試験
+
+| 種別 | コマンド | 見るもの |
+| --- | --- | --- |
+| ルール試験 | `npm test` | 出題内容、カリキュラム、ヒント段階、保存データの正規化。DOM不要 |
+| 構文検査 | `npm run lint` | 全ソースと Service Worker |
+| ビルド検査 | `npm run build` | バンドルの構文、`import` 残存、`type="module"` 混入 |
+| ブラウザ試験 | `node scripts/browser-smoke.mjs` | 実ブラウザで全モード完走、コンソールエラー、はみ出し、タップ対象の大きさ、**誘導が指す先＝押すべき要素**、誤タップで進行が壊れないこと |
+
+ブラウザ試験は毎回 Cache Storage と Service Worker を消してから始める。
+古いキャッシュが不具合を隠すのを防ぐため（実際に隠していた）。
+
+### ブラウザ試験の動かし方
+
+```bash
+npm run build
+python3 -m http.server 4173 -d dist &
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --remote-debugging-port=9250 \
+  --user-data-dir=/tmp/ponpoko-profile --window-size=1194,834 \
+  http://127.0.0.1:4173/index.html &
+node scripts/browser-smoke.mjs 9250 landscape
 ```
 
-モードを連結した長い自動セッションにはしない。子どもがホームの4カードから直接選び、3ラウンドで一度完結させる。
+縦向きは `--window-size=834,1194` で同じことをする。
 
-## シーンライフサイクル
+---
 
-複数回プレイ時の画面破綻を防ぐ最重要部分である。
+## 7. 公開
 
-`clearRuntime()`は次の順で旧シーンを無効化する。
-
-1. `state.lifecycle`を増加する。
-2. 現在の`AbortController`をabortし、Pointer Eventを解除する。
-3. 追跡中の全`setTimeout`をclearする。
-4. 追跡中の全Web Animationをcancelする。
-5. ヒント、粒子、ラウンド完了UIを消す。
-6. 再生中の効果音とSpeech Synthesisキューを止める。
-
-`schedule()`は作成時のlifecycleを閉包し、番号が一致する場合だけcallbackを実行する。Web Animationも同じ番号を確認してから完了処理を呼ぶ。画面切替後の古い処理を直接呼ぶタイマーや`animation.finished`を追加してはいけない。
-
-## ラウンド生成
-
-`createRound(activity, roundIndex, options)`だけを入口にする。
-
-- `farm`: 6個の作物と生育場所を返す。3ラウンドで18種類を重複なく扱う。
-- `animal`: 4匹と、別順序へshuffleした4個の影を返す。
-- `hiragana` / `alphabet`: 保存された開始位置から3文字と、各文字の3択を返す。
-
-文字カリキュラムはセッション完了時だけ`nextCurriculumIndex()`で9進める。途中離脱では進めない。
-
-## Pointer Eventの規則
-
-- `pointerdown`で1つの`pointerId`を保持し、`setPointerCapture()`する。
-- `pointermove`では`--drag-x`と`--drag-y`だけを更新し、指へ即時追従させる。
-- `pointerup` / `pointercancel`の両方を同じ終了関数へ接続する。
-- 正解判定後は`state.busy`で並行入力を止め、永続表示先へ移動してから解除する。
-- ドロップ判定は`isPointInsideRect()`のpaddingを使い、見た目より24〜35px広くする。
-- 操作不足は元の場所へ戻し、減点しない。
-- 全ラウンドイベントへ`state.roundAbort.signal`を渡す。
-
-### 救済入力
-
-- 農園: 同じ作物を2回タップ
-- 動物: 同じ動物を2回タップ
-- 文字: 見本と同じ文字を1回タップ
-
-救済入力は本来のドラッグを置き換える主操作ではない。最初のアイドルヒントは必ずドラッグを実演する。
-
-## 永続する完成盤
-
-操作対象を消して終わらせない。
-
-- 農園: `harvest-slot`へ作物のクローンを追加する。
-- 動物: `animal-home`内の影を消し、カラー動物を表示する。
-- 文字: `letter-slot`へ字形を追加する。
-
-最後の1個が入った後もDOMを維持し、`#round-complete`の大きな次ボタンだけを重ねる。自動で`renderRound()`を呼ばない。
-
-## AudioDirector
-
-`src/audio.js`は設定値をgetterで受け取り、効果音と音声を分離する。
-
-- `play(kind)`: Web Audio APIで短い音を生成する。
-- `speak(text, lang)`: 対象言語のローカルvoiceを優先し、Speech Synthesisへ1件だけ送る。
-- `stop()`: 追跡中sourceと音声キューを停止する。
-
-音声は学習対象の名前・文字だけに使う。操作説明文を読み上げない。ABCへは`en-US`、それ以外へは`ja-JP`を指定する。
-
-## たぬき配置
-
-モードごとの基準位置は`ACTIVITY_META`に置く。`positionActor()`が実際のsprite幅とviewport幅から左右8pxの安全域へclampする。端末回転時にも再計算する。
-
-ポーズは`setPose()`を通して入れ替え、古い`pose-*`を必ず除去する。成功時の`reactTanuki()`はポーズ、ジャンプ、感情バブルを同期させる。対象物をpointer座標へ追従させる用途には使わない。
-
-## スプライト規約
-
-- たぬき: 3列×2行、`background-size: 300% 200%`
-- 果物・野菜: 3列×3行、`background-size: 300% 300%`
-- 動物: 3列×4行、`background-size: 300% 400%`
-
-ゲームロジックから数値セルを渡さず、`cell-apple`、`cell-elephant`の意味クラスを使う。文字は画像にせず、端末の丸ゴシック系fontで描画する。
-
-## 保存形式
-
-現在のキーは次のとおり。
-
-- `ponpoko-adventure-settings-v5`: `effects`、`voice`、`reduceMotion`
-- `ponpoko-adventure-progress-v5`: `sessions`、モード別`completed`、`curriculum.hiragana`、`curriculum.alphabet`
-
-`loadSavedState()`で旧v3の`sound`を`effects`と`voice`へ移行する。壊れたJSON、負数、範囲外カリキュラムを常に正規化する。
-
-## テスト
-
-純粋関数試験では最低限次を固定する。
-
-- 指定された果物9、野菜9、動物12の完全な一覧
-- 3農園ラウンドで18種類が1回ずつ登場すること
-- きゅうり・ぶどうが棚、根菜だけが土中などの生育場所
-- 3動物ラウンドで12種類が1回ずつ登場し、影との集合が一致すること
-- ひらがな46文字、英字26文字と大文字・小文字
-- 全文字の3択に正解が1個だけ含まれること
-- カリキュラムの周回、保存値移行、ドラッグ座標境界
-
-ブラウザ通し試験では次を縦横両方で実行する。
-
-1. 4モードを正規ドラッグと救済入力の両方で完走。
-2. 各完成盤に6作物、4動物、3文字が残ること。
-3. 農園18、動物12、ひらがな9、ABC9を1セッションで処理。
-4. 収集アニメーション中にホームへ戻り、別モードを開始。
-5. 旧callbackが新モードへ割り込まないこと。
-6. たぬきの全身、overflow、保護者ゲート、保存回数を確認。
-
-## リリース手順
-
-1. `docs/game-design.md`を実装に合わせる。
-2. Service Workerの`CACHE_NAME`を上げ、追加モジュールを`APP_FILES`へ登録する。
-3. `npm test`
-4. `npm run lint`
-5. `npm run build`
-6. `git diff --check`
-7. iPad相当の横向き・縦向きで完全通し試験とスクリーンショット確認
-8. 意図したファイルだけをcommit / push
-9. GitHub Actions完了を確認
-10. 公開URLを新規ブラウザプロファイルで再度完走
+`main` への push で GitHub Actions が試験・ビルドし、`dist/` を GitHub Pages へ出す。
+公開後は**実機のホーム画面アイコンから**開いて確認する。ブラウザで開けたことは確認にならない。

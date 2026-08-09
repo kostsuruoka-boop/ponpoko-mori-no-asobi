@@ -1,960 +1,1211 @@
+/*
+ * ぽんぽこ もりの だいぼうけん — application shell.
+ *
+ * Design rules this file enforces:
+ *  - Every interaction is a single tap on a large target. Nothing is dragged.
+ *  - Whatever the guidance points at is exactly what must be tapped.
+ *  - A wrong tap teaches (the tapped thing says its own name) and never blocks.
+ *  - Everything created inside a scene is owned by one lifecycle id and is torn
+ *    down before the next scene exists.
+ *  - Browser baseline is Safari 13.4, so no logical assignment, no
+ *    replaceChildren, no AbortController listener signals.
+ */
+
 import { AudioDirector } from "./audio.js";
 import {
+  ACTIVITY_META,
   ACTIVITY_ORDER,
+  ALPHABET,
+  ANIMALS,
+  FARM_ITEMS,
+  HIRAGANA,
+  PRAISE,
   ROUNDS_PER_ACTIVITY,
+} from "./content.js";
+import {
   advanceRound,
+  animalById,
   createRound,
-  dragDistance,
-  isPointInsideRect,
+  hintStage,
+  literacyCatalog,
   loadSavedState,
   nextCurriculumIndex,
   normalizeActivity,
+  targetsPerRound,
 } from "./game-core.js";
+import {
+  backdropMarkup,
+  habitatFor,
+  PRODUCE_ROTATION,
+} from "./scenery.js";
 
 const STORAGE_KEYS = {
-  settings: "ponpoko-adventure-settings-v5",
-  progress: "ponpoko-adventure-progress-v5",
-  legacySettings: "ponpoko-adventure-settings-v3",
-  legacyProgress: "ponpoko-adventure-progress-v3",
+  settings: "ponpoko-settings-v6",
+  progress: "ponpoko-progress-v6",
+  legacySettings: "ponpoko-adventure-settings-v5",
+  legacyProgress: "ponpoko-adventure-progress-v5",
 };
 
+/*
+ * Pause between "you got it" and the next request, per activity.
+ * These are tuned so the spoken name of the thing the child just found is
+ * never cut off by the next question — speaking cancels whatever is playing.
+ */
+const STEP_PACING = { farm: 1150, animal: 1400, hiragana: 500, alphabet: 500 };
+
+/* Praise is occasional on purpose: every single time would talk over the
+ * vocabulary, which is the part actually worth hearing. */
+const PRAISE_EVERY = 3;
+
+/* --------------------------------------------------------------- storage */
+function readStorage(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch (error) {
+    /* Private mode or blocked cookies must never break play. */
+  }
+}
+
+function prefersReducedMotion() {
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch (error) {
+    return false;
+  }
+}
+
 const saved = loadSavedState(
-  localStorage.getItem(STORAGE_KEYS.settings) ?? localStorage.getItem(STORAGE_KEYS.legacySettings),
-  localStorage.getItem(STORAGE_KEYS.progress) ?? localStorage.getItem(STORAGE_KEYS.legacyProgress),
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  readStorage(STORAGE_KEYS.settings) || readStorage(STORAGE_KEYS.legacySettings),
+  readStorage(STORAGE_KEYS.progress) || readStorage(STORAGE_KEYS.legacyProgress),
+  prefersReducedMotion(),
 );
 
 const state = {
-  screen: "home",
   activity: "farm",
   roundIndex: 0,
   round: null,
-  completedCount: 0,
-  literacyTargetIndex: 0,
+  stepIndex: 0,
+  solved: 0,
   busy: false,
   settings: saved.settings,
   progress: saved.progress,
   sessionResults: [],
+  sessionFound: {},
+  bonusSprites: false,
   lifecycle: 0,
-  timers: new Set(),
-  animations: new Set(),
-  roundAbort: null,
-  hintTimer: null,
+  timers: [],
+  listeners: [],
+  quest: null,
+  hintTicker: null,
+  praiseIndex: 0,
 };
 
-const elements = {
-  app: document.querySelector("#app"),
-  screens: [...document.querySelectorAll(".screen")],
-  modeButtons: [...document.querySelectorAll("[data-mode]")],
-  homeTanuki: document.querySelector("#home-tanuki"),
-  adultButtons: [document.querySelector("#adult-button"), document.querySelector("#game-adult-button")],
-  gameHomeButton: document.querySelector("#game-home-button"),
-  activityLayer: document.querySelector("#activity-layer"),
-  actor: document.querySelector("#tanuki-actor"),
-  reaction: document.querySelector("#tanuki-reaction"),
-  gestureHint: document.querySelector("#gesture-hint"),
-  particleLayer: document.querySelector("#particle-layer"),
-  modeIcon: document.querySelector("#mode-icon"),
-  modeTitle: document.querySelector("#mode-title"),
-  roundPips: document.querySelector("#round-pips"),
-  curtain: document.querySelector("#activity-curtain"),
-  curtainDemo: document.querySelector("#curtain-demo"),
-  curtainTitle: document.querySelector("#curtain-title"),
-  roundComplete: document.querySelector("#round-complete"),
-  nextRoundButton: document.querySelector("#next-round-button"),
-  replayButton: document.querySelector("#replay-button"),
-  finishHomeButton: document.querySelector("#finish-home-button"),
-  finishTitle: document.querySelector("#finish-title"),
-  finishKicker: document.querySelector("#finish-kicker"),
-  finishResults: document.querySelector("#finish-results"),
-  finishConfetti: document.querySelector("#finish-confetti"),
-  parentDialog: document.querySelector("#parent-dialog"),
-  parentGate: document.querySelector("#parent-gate"),
-  parentSettings: document.querySelector("#parent-settings"),
-  dialogClose: document.querySelector("#dialog-close"),
-  gateButtons: [...document.querySelectorAll("[data-gate]")],
-  gateFeedback: document.querySelector("#gate-feedback"),
-  effectsSetting: document.querySelector("#effects-setting"),
-  voiceSetting: document.querySelector("#voice-setting"),
-  motionSetting: document.querySelector("#motion-setting"),
-  sessionCount: document.querySelector("#session-count"),
-  resetButton: document.querySelector("#reset-button"),
-};
+const dom = {};
 
-const ACTIVITY_META = {
-  farm: {
-    title: "ぽんぽこ農園",
-    icon: "🌱",
-    actorPose: "basket",
-    actorLeft: "89%",
-    actorBottom: "0%",
-    reactionLeft: "80%",
-    reactionBottom: "34%",
-    finishTitle: "たくさん とれたね！",
-    finishKicker: "ぽんぽこ だいしゅうかく！",
-  },
-  animal: {
-    title: "どうぶつ広場",
-    icon: "🐾",
-    actorPose: "wave",
-    actorLeft: "89%",
-    actorBottom: "0%",
-    reactionLeft: "80%",
-    reactionBottom: "34%",
-    finishTitle: "みんな なかよし！",
-    finishKicker: "どうぶつ だいしゅうごう！",
-  },
-  hiragana: {
-    title: "ひらがな おとの森",
-    icon: "あ",
-    actorPose: "basket",
-    actorLeft: "13%",
-    actorBottom: "0%",
-    reactionLeft: "22%",
-    reactionBottom: "34%",
-    finishTitle: "おとと もじが つながった！",
-    finishKicker: "ひらがな ぽんぽこ！",
-  },
-  alphabet: {
-    title: "ABC おとの森",
-    icon: "A",
-    actorPose: "basket",
-    actorLeft: "13%",
-    actorBottom: "0%",
-    reactionLeft: "22%",
-    reactionBottom: "34%",
-    finishTitle: "ABCを みつけたね！",
-    finishKicker: "ABC ぽんぽこ！",
-  },
-};
-
-const TILE_COLORS = ["#ffe17e", "#aee2b0", "#a9d6ff"];
-const audio = new AudioDirector(() => state.settings);
-
-function showScreen(name) {
-  state.screen = name;
-  elements.app.dataset.screen = name;
-  elements.screens.forEach((screen) => screen.classList.toggle("is-active", screen.id === `${name}-screen`));
-  window.scrollTo(0, 0);
+/* ----------------------------------------------------------- dom helpers */
+function query(selector) {
+  return document.querySelector(selector);
 }
 
-function clearRuntime() {
-  state.lifecycle += 1;
-  state.roundAbort?.abort();
-  state.roundAbort = null;
-  state.timers.forEach((timer) => clearTimeout(timer));
-  state.timers.clear();
-  state.animations.forEach((animation) => animation.cancel());
-  state.animations.clear();
-  state.hintTimer = null;
-  elements.gestureHint.className = "gesture-hint";
-  elements.gestureHint.removeAttribute("style");
-  elements.particleLayer.replaceChildren();
-  elements.roundComplete.hidden = true;
-  elements.activityLayer.classList.remove("round-complete");
-  audio.stop();
+function el(tag, className, html) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (html !== undefined && html !== null) node.innerHTML = html;
+  return node;
+}
+
+function clear(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
+}
+
+/* Listeners registered here are removed the moment the scene ends. */
+function on(target, type, handler, options) {
+  target.addEventListener(type, handler, options);
+  state.listeners.push({ target: target, type: type, handler: handler, options: options });
 }
 
 function schedule(callback, delay) {
   const lifecycle = state.lifecycle;
-  const timer = window.setTimeout(() => {
-    state.timers.delete(timer);
+  const timer = window.setTimeout(function () {
+    const position = state.timers.indexOf(timer);
+    if (position >= 0) state.timers.splice(position, 1);
     if (lifecycle === state.lifecycle) callback();
   }, delay);
-  state.timers.add(timer);
+  state.timers.push(timer);
   return timer;
 }
 
-function animate(element, keyframes, options, onFinish) {
+function motion(fastValue, slowValue) {
+  return state.settings.reduceMotion ? fastValue : slowValue;
+}
+
+function animate(node, keyframes, options, onFinish) {
   const lifecycle = state.lifecycle;
-  const animation = element.animate(keyframes, options);
-  state.animations.add(animation);
-  animation.finished.then(() => {
-    state.animations.delete(animation);
-    if (lifecycle === state.lifecycle) onFinish?.();
-  }).catch(() => state.animations.delete(animation));
-  return animation;
+  function done() {
+    if (lifecycle === state.lifecycle && onFinish) onFinish();
+  }
+  if (!node || !node.animate || state.settings.reduceMotion) {
+    schedule(done, 16);
+    return null;
+  }
+  try {
+    const animation = node.animate(keyframes, options);
+    animation.onfinish = done;
+    animation.oncancel = function () {};
+    return animation;
+  } catch (error) {
+    schedule(done, 16);
+    return null;
+  }
 }
 
-function setPose(element, pose) {
-  [...element.classList].filter((className) => className.startsWith("pose-")).forEach((className) => element.classList.remove(className));
-  element.classList.add(`pose-${pose}`);
+function clearRuntime() {
+  state.lifecycle += 1;
+  state.timers.forEach(function (timer) {
+    clearTimeout(timer);
+  });
+  state.timers = [];
+  state.listeners.forEach(function (entry) {
+    entry.target.removeEventListener(entry.type, entry.handler, entry.options);
+  });
+  state.listeners = [];
+  if (state.hintTicker !== null) {
+    clearInterval(state.hintTicker);
+    state.hintTicker = null;
+  }
+  state.quest = null;
+  state.busy = false;
+  hideHand();
+  clear(dom.fx);
+  dom.roundComplete.hidden = true;
+  audio.stop();
 }
 
-function setActorForActivity() {
-  const meta = ACTIVITY_META[state.activity];
-  positionActor();
-  elements.actor.style.setProperty("--actor-bottom", meta.actorBottom);
-  elements.reaction.style.setProperty("--reaction-left", meta.reactionLeft);
-  elements.reaction.style.setProperty("--reaction-bottom", meta.reactionBottom);
-  elements.actor.classList.remove("is-reacting", "is-thinking");
-  setPose(elements.actor, meta.actorPose);
+const audio = new AudioDirector(function () {
+  return state.settings;
+});
+
+/* ------------------------------------------------------------- structure */
+function buildShell() {
+  dom.app = query("#app");
+  dom.screens = {
+    home: query("#home-screen"),
+    game: query("#game-screen"),
+    finish: query("#finish-screen"),
+  };
+  dom.modeButtons = document.querySelectorAll("[data-mode]");
+  dom.backdrop = query("#game-backdrop");
+  dom.modeIcon = query("#mode-icon");
+  dom.modeTitle = query("#mode-title");
+  dom.pips = query("#round-pips");
+  dom.stage = query("#stage");
+  dom.fx = query("#fx-layer");
+  dom.hand = query("#tap-hand");
+  dom.roundComplete = query("#round-complete");
+  dom.nextButton = query("#next-round-button");
+  dom.finishTitle = query("#finish-title");
+  dom.finishKicker = query("#finish-kicker");
+  dom.finishResults = query("#finish-results");
+  dom.confetti = query("#finish-confetti");
+  dom.parentOverlay = query("#parent-overlay");
+  dom.parentGate = query("#parent-gate");
+  dom.parentSettings = query("#parent-settings");
+  dom.sessionCount = query("#session-count");
+  dom.effectsSetting = query("#effects-setting");
+  dom.voiceSetting = query("#voice-setting");
+  dom.motionSetting = query("#motion-setting");
+  dom.buildStamp = query("#build-stamp");
+  dom.backdrop.innerHTML = backdropMarkup();
 }
 
-function positionActor() {
-  const requested = window.innerWidth * parseFloat(ACTIVITY_META[state.activity].actorLeft) / 100;
-  const actorWidth = elements.actor.getBoundingClientRect().width || Math.min(window.innerWidth * .29, 285);
-  const halfWidth = actorWidth / 2;
-  const safeX = Math.min(Math.max(requested, halfWidth + 8), window.innerWidth - halfWidth - 8);
-  elements.actor.style.setProperty("--actor-left", `${safeX}px`);
+function showScreen(name) {
+  dom.app.setAttribute("data-screen", name);
+  Object.keys(dom.screens).forEach(function (key) {
+    dom.screens[key].classList.toggle("is-active", key === name);
+  });
+  window.scrollTo(0, 0);
 }
 
-function setBodyActivity(activity) {
-  document.body.classList.remove(...ACTIVITY_ORDER.map((name) => `activity-${name}`));
-  if (activity) document.body.classList.add(`activity-${activity}`);
+function spriteClass(id) {
+  return "sprite cell-" + id;
 }
 
-function startMode(requestedActivity) {
-  clearRuntime();
-  state.activity = normalizeActivity(requestedActivity);
-  state.roundIndex = 0;
-  state.sessionResults = [];
-  state.busy = true;
-  setBodyActivity(state.activity);
-  setActorForActivity();
-  updateHud();
-  showScreen("game");
-  audio.unlock();
-  audio.play("open");
-  showActivityIntro();
+function spriteMarkup(id, extraClass) {
+  return '<i class="' + spriteClass(id) + (extraClass ? " " + extraClass : "") + '"></i>';
 }
 
-function showActivityIntro() {
-  const meta = ACTIVITY_META[state.activity];
-  elements.curtainTitle.textContent = meta.title;
-  elements.curtainDemo.innerHTML = createIntroDemo(state.activity);
-  elements.curtain.hidden = false;
-  elements.curtain.classList.remove("is-leaving");
-  schedule(() => {
-    elements.curtain.classList.add("is-leaving");
-    schedule(() => {
-      elements.curtain.hidden = true;
-      renderRound();
-    }, state.settings.reduceMotion ? 60 : 320);
-  }, state.settings.reduceMotion ? 360 : 1250);
+function itemById(id) {
+  for (let index = 0; index < FARM_ITEMS.length; index += 1) {
+    if (FARM_ITEMS[index].id === id) return FARM_ITEMS[index];
+  }
+  return null;
 }
 
-function createIntroDemo(activity) {
-  if (activity === "farm") return '<i class="demo-sprite world-sprite cell-apple"></i>';
-  if (activity === "animal") return '<i class="demo-shadow world-sprite cell-dog"></i><i class="demo-sprite world-sprite cell-dog"></i>';
-  const glyph = activity === "hiragana" ? "あ" : "A a";
-  return `<span class="demo-letter">${glyph}</span><span class="demo-sound">♪</span>`;
+function nextPraise() {
+  state.praiseIndex = (state.praiseIndex + 1) % PRAISE.length;
+  return PRAISE[state.praiseIndex];
+}
+
+/* ------------------------------------------------------------ stage frame */
+/*
+ * Every activity uses the same three regions so a child always finds the
+ * request in the same place and the tappable things in the same place.
+ */
+function buildStageFrame(activityClass) {
+  clear(dom.stage);
+  const frame = el("div", "stage-frame " + activityClass);
+  const ask = el("div", "ask-panel");
+  const tanuki = el("div", "ask-tanuki tanuki-sprite pose-" + ACTIVITY_META[state.activity].pose);
+  const bubble = el("button", "ask-bubble");
+  bubble.type = "button";
+  bubble.setAttribute("aria-label", "もういちど きく");
+  const bubbleBody = el("div", "ask-bubble-body");
+  const speaker = el("span", "ask-speaker", "♪");
+  bubble.appendChild(bubbleBody);
+  bubble.appendChild(speaker);
+  ask.appendChild(bubble);
+  ask.appendChild(tanuki);
+
+  const play = el("div", "play-area");
+  const collect = el("div", "collect-bar");
+
+  frame.appendChild(ask);
+  frame.appendChild(play);
+  frame.appendChild(collect);
+  dom.stage.appendChild(frame);
+
+  on(bubble, "click", function () {
+    audio.play("tap");
+    announceTarget(true);
+    markInteraction();
+  });
+
+  return { frame: frame, ask: ask, tanuki: tanuki, bubble: bubbleBody, play: play, collect: collect };
+}
+
+function buildCollectSlots(collect, count) {
+  clear(collect);
+  for (let index = 0; index < count; index += 1) {
+    const slot = el("div", "collect-slot");
+    slot.setAttribute("data-collect", String(index));
+    collect.appendChild(slot);
+  }
+}
+
+function fillCollectSlot(index, html) {
+  const slot = dom.stage.querySelector('[data-collect="' + index + '"]');
+  if (!slot) return null;
+  slot.classList.add("is-filled");
+  slot.innerHTML = html;
+  return slot;
+}
+
+/* ----------------------------------------------------------------- quests */
+/*
+ * A quest is "one thing is being asked for". It owns the escalating hint and
+ * routes every tap in the play area to correct/incorrect handling.
+ */
+function startQuest(config) {
+  state.quest = {
+    targetId: config.targetId,
+    wrongTaps: 0,
+    lastInteraction: Date.now(),
+    stage: 0,
+    announce: config.announce,
+    findTarget: config.findTarget,
+    onCorrect: config.onCorrect,
+    onWrong: config.onWrong,
+  };
+  if (state.hintTicker === null) {
+    const lifecycle = state.lifecycle;
+    state.hintTicker = window.setInterval(function () {
+      if (lifecycle !== state.lifecycle) return;
+      updateHint();
+    }, 400);
+  }
+  announceTarget(false);
+}
+
+function markInteraction() {
+  if (!state.quest) return;
+  state.quest.lastInteraction = Date.now();
+  applyHintStage(0);
+}
+
+function announceTarget(manual) {
+  if (!state.quest || !state.quest.announce) return;
+  state.quest.announce(manual === true);
+  if (!manual) markInteraction();
+}
+
+function updateHint() {
+  const quest = state.quest;
+  if (!quest || state.busy) return;
+  const stage = hintStage(Date.now() - quest.lastInteraction, quest.wrongTaps);
+  if (stage !== quest.stage) applyHintStage(stage);
+  if (quest.stage >= 3) positionHand(quest.findTarget());
+}
+
+/*
+ * `silent` is used right after a wrong tap, where the activity is already
+ * saying the name of what the child touched. Speaking again there would cut
+ * that word off mid-syllable.
+ */
+function applyHintStage(stage, silent) {
+  const quest = state.quest;
+  if (!quest) return;
+  quest.stage = stage;
+  const target = quest.findTarget();
+  clearHintClasses();
+  if (!target || stage <= 0) {
+    hideHand();
+    return;
+  }
+  if (stage === 1) {
+    hideHand();
+    if (!silent) announceRepeat();
+    return;
+  }
+  target.classList.add(stage >= 3 ? "is-hint-strong" : "is-hint-soft");
+  if (stage >= 3) {
+    positionHand(target);
+    if (!silent) announceRepeat();
+  } else {
+    hideHand();
+  }
+}
+
+function announceRepeat() {
+  if (!state.quest || !state.quest.announce) return;
+  state.quest.announce(true);
+}
+
+function clearHintClasses() {
+  const hinted = dom.stage.querySelectorAll(".is-hint-soft, .is-hint-strong");
+  for (let index = 0; index < hinted.length; index += 1) {
+    hinted[index].classList.remove("is-hint-soft", "is-hint-strong");
+  }
+}
+
+function positionHand(target) {
+  if (!target || state.settings.reduceMotion) return;
+  const rect = target.getBoundingClientRect();
+  if (!rect.width) return;
+  dom.hand.style.left = rect.left + rect.width / 2 + "px";
+  dom.hand.style.top = rect.top + rect.height * 0.62 + "px";
+  dom.hand.classList.add("is-visible");
+}
+
+function hideHand() {
+  if (!dom.hand) return;
+  dom.hand.classList.remove("is-visible");
+}
+
+function resolveTap(id, element) {
+  const quest = state.quest;
+  if (!quest || state.busy) return;
+  markInteraction();
+  if (id === quest.targetId) {
+    state.busy = true;
+    clearHintClasses();
+    hideHand();
+    quest.onCorrect(element);
+    return;
+  }
+  quest.wrongTaps += 1;
+  quest.onWrong(element, id);
+  applyHintStage(hintStage(0, quest.wrongTaps), true);
+}
+
+/* --------------------------------------------------------------- feedback */
+function wiggle(node) {
+  if (!node) return;
+  node.classList.remove("is-wiggling");
+  /* Force a reflow so the animation restarts on repeated wrong taps. */
+  void node.offsetWidth;
+  node.classList.add("is-wiggling");
+  schedule(function () {
+    node.classList.remove("is-wiggling");
+  }, 500);
+}
+
+function tanukiReact(pose, duration) {
+  const tanuki = dom.stage.querySelector(".ask-tanuki");
+  if (!tanuki) return;
+  const base = ACTIVITY_META[state.activity].pose;
+  setPose(tanuki, pose);
+  tanuki.classList.add("is-reacting");
+  schedule(function () {
+    tanuki.classList.remove("is-reacting");
+    setPose(tanuki, base);
+  }, duration || 900);
+}
+
+function setPose(node, pose) {
+  const classes = node.className.split(" ").filter(function (name) {
+    return name.indexOf("pose-") !== 0;
+  });
+  classes.push("pose-" + pose);
+  node.className = classes.join(" ");
+}
+
+function burst(node, color, amount) {
+  if (state.settings.reduceMotion || !node) return;
+  const rect = node.getBoundingClientRect();
+  const total = amount || 12;
+  for (let index = 0; index < total; index += 1) {
+    const angle = (Math.PI * 2 * index) / total + Math.random() * 0.4;
+    const distance = 40 + Math.random() * 70;
+    const particle = el("i", "particle");
+    particle.style.left = rect.left + rect.width / 2 + "px";
+    particle.style.top = rect.top + rect.height / 2 + "px";
+    particle.style.background = color;
+    particle.style.setProperty("--dx", Math.cos(angle) * distance + "px");
+    particle.style.setProperty("--dy", Math.sin(angle) * distance + "px");
+    dom.fx.appendChild(particle);
+    schedule(function () {
+      if (particle.parentNode) particle.parentNode.removeChild(particle);
+    }, 900);
+  }
+}
+
+/*
+ * Fly a copy of `source` into `target`. The clone lives in the fixed effects
+ * layer so it can cross any container boundary without clipping.
+ */
+function flyTo(source, target, className, innerHtml, onFinish) {
+  if (!source || !target) {
+    if (onFinish) onFinish();
+    return;
+  }
+  const from = source.getBoundingClientRect();
+  const to = target.getBoundingClientRect();
+  const clone = el("div", "fly-clone " + (className || ""), innerHtml);
+  clone.style.left = from.left + "px";
+  clone.style.top = from.top + "px";
+  clone.style.width = from.width + "px";
+  clone.style.height = from.height + "px";
+  dom.fx.appendChild(clone);
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+  const scale = Math.min(1, (to.width * 0.82) / Math.max(from.width, 1));
+  animate(
+    clone,
+    [
+      { transform: "translate(0px,0px) scale(1)" },
+      { transform: "translate(" + dx * 0.45 + "px," + (dy * 0.3 - 70) + "px) scale(1.1)", offset: 0.5 },
+      { transform: "translate(" + dx + "px," + dy + "px) scale(" + scale + ")" },
+    ],
+    { duration: motion(120, 620), easing: "cubic-bezier(.2,.75,.28,1)", fill: "forwards" },
+    function () {
+      if (clone.parentNode) clone.parentNode.removeChild(clone);
+      if (onFinish) onFinish();
+    },
+  );
+}
+
+/* -------------------------------------------------------------- the farm */
+function renderFarmRound() {
+  const parts = buildStageFrame("stage-farm");
+  const field = el("div", "farm-field");
+  state.round.items.forEach(function (item) {
+    const habitat = habitatFor(item.habitat);
+    const plot = el("div", "farm-plot habitat-" + item.habitat);
+    const box = el("div", "habitat-box");
+    box.innerHTML = habitat.back;
+
+    const button = el("button", "produce");
+    button.type = "button";
+    button.setAttribute("data-item", item.id);
+    button.setAttribute("aria-label", item.label);
+    button.style.left = habitat.anchorX + "%";
+    button.style.top = habitat.anchorY + "%";
+    /* The habitat box is square, so equal percentages give a square target. */
+    button.style.width = habitat.scale * 100 + "%";
+    button.style.height = habitat.scale * 100 + "%";
+    const sprite = el("i", spriteClass(item.id) + " produce-sprite");
+    const rotation = PRODUCE_ROTATION[item.id] || 0;
+    if (rotation) sprite.style.transform = "rotate(" + rotation + "deg)";
+    button.appendChild(sprite);
+    box.appendChild(button);
+
+    if (habitat.front) {
+      const front = el("div", "habitat-front-layer");
+      front.innerHTML = habitat.front;
+      box.appendChild(front);
+    }
+    plot.appendChild(box);
+    field.appendChild(plot);
+
+    on(button, "click", function () {
+      resolveTap(item.id, button);
+    });
+  });
+  parts.play.appendChild(field);
+  buildCollectSlots(parts.collect, state.round.items.length);
+  startFarmQuest();
+}
+
+function startFarmQuest() {
+  const targetId = state.round.quest[state.stepIndex];
+  const item = itemById(targetId);
+  const bubble = dom.stage.querySelector(".ask-bubble-body");
+  bubble.innerHTML = spriteMarkup(targetId, "ask-sprite");
+  startQuest({
+    targetId: targetId,
+    announce: function () {
+      audio.speak(item.label + ACTIVITY_META.farm.askSuffix, "ja-JP");
+    },
+    findTarget: function () {
+      return dom.stage.querySelector('.produce[data-item="' + targetId + '"]');
+    },
+    onCorrect: function (button) {
+      harvest(button, item);
+    },
+    onWrong: function (button, id) {
+      const wrongItem = itemById(id);
+      audio.play("nudge");
+      wiggle(button);
+      if (wrongItem) audio.speak(wrongItem.label, "ja-JP");
+      tanukiReact("wave", 700);
+      schedule(function () {
+        announceRepeat();
+      }, 1500);
+    },
+  });
+}
+
+function harvest(button, item) {
+  const habitat = habitatFor(item.habitat);
+  const sprite = button.querySelector(".produce-sprite");
+  const rotation = PRODUCE_ROTATION[item.id] || 0;
+  const slotIndex = state.solved;
+  const slot = dom.stage.querySelector('[data-collect="' + slotIndex + '"]');
+  audio.play(item.habitat === "soil" ? "pull" : "pick");
+
+  /* Buried roots rise out of the ridge first: that lift is the whole point. */
+  animate(
+    sprite,
+    [
+      { transform: "translateY(0) rotate(" + rotation + "deg)" },
+      { transform: "translateY(" + -habitat.rise * 100 + "%) rotate(" + rotation + "deg) scale(1.06)" },
+    ],
+    { duration: motion(60, 320), easing: "cubic-bezier(.2,.9,.3,1.2)", fill: "forwards" },
+    function () {
+      burst(button, item.habitat === "soil" ? "#a9764e" : "#68b665", 12);
+      button.classList.add("is-harvested");
+      flyTo(button, slot, "fly-sprite", spriteMarkup(item.id), function () {
+        fillCollectSlot(slotIndex, spriteMarkup(item.id, "collected"));
+        audio.play("land", slotIndex);
+        audio.speak(item.label, "ja-JP");
+        completeStep();
+      });
+    },
+  );
+}
+
+/* ------------------------------------------------------------ the animals */
+/*
+ * The question itself is a shadow: it lives in the ask bubble, and the whole
+ * play area belongs to the candidates so their tap targets stay huge.
+ */
+function renderAnimalRound() {
+  const parts = buildStageFrame("stage-animal");
+  const choices = el("div", "choice-row");
+  choices.setAttribute("id", "choice-row");
+  choices.setAttribute("data-count", String(state.round.choiceCount));
+  parts.play.appendChild(choices);
+  buildCollectSlots(parts.collect, state.round.steps.length);
+  startAnimalQuest();
+}
+
+function startAnimalQuest() {
+  const step = state.round.steps[state.stepIndex];
+  const animal = animalById(step.targetId);
+  const row = dom.stage.querySelector("#choice-row");
+  const bubble = dom.stage.querySelector(".ask-bubble-body");
+  bubble.innerHTML = '<div class="shadow-frame" id="shadow-frame">'
+    + '<i class="' + spriteClass(step.targetId) + ' shadow-sprite"></i>'
+    + '<i class="' + spriteClass(step.targetId) + ' reveal-sprite"></i>'
+    + "</div>";
+  const card = dom.stage.querySelector("#shadow-frame");
+
+  clear(row);
+  row.setAttribute("data-count", String(step.choices.length));
+  step.choices.forEach(function (id) {
+    const choice = animalById(id);
+    const button = el("button", "choice-card");
+    button.type = "button";
+    button.setAttribute("data-animal", id);
+    button.setAttribute("aria-label", choice.label);
+    button.innerHTML = spriteMarkup(id, "choice-sprite");
+    row.appendChild(button);
+    on(button, "click", function () {
+      resolveTap(id, button);
+    });
+  });
+
+  startQuest({
+    targetId: step.targetId,
+    announce: function () {
+      audio.speak(ACTIVITY_META.animal.askPrefix, "ja-JP");
+      pulse(card);
+    },
+    findTarget: function () {
+      return dom.stage.querySelector('.choice-card[data-animal="' + step.targetId + '"]');
+    },
+    onCorrect: function (button) {
+      revealAnimal(button, animal, card);
+    },
+    onWrong: function (button, id) {
+      const wrong = animalById(id);
+      audio.play("nudge");
+      wiggle(button);
+      audio.speak(wrong.label, "ja-JP");
+      pulse(card);
+      tanukiReact("wave", 700);
+    },
+  });
+}
+
+function pulse(node) {
+  if (!node) return;
+  node.classList.remove("is-pulsing");
+  void node.offsetWidth;
+  node.classList.add("is-pulsing");
+  schedule(function () {
+    node.classList.remove("is-pulsing");
+  }, 900);
+}
+
+function revealAnimal(button, animal, card) {
+  const slotIndex = state.solved;
+  const slot = dom.stage.querySelector('[data-collect="' + slotIndex + '"]');
+  audio.play("pick");
+  button.classList.add("is-chosen");
+  flyTo(button, card, "fly-sprite", spriteMarkup(animal.id), function () {
+    card.classList.add("is-revealed");
+    audio.play("correct");
+    burst(card, "#f7d35b", 16);
+    audio.speak(animal.label + (animal.cry ? "。" + animal.cry : ""), "ja-JP");
+    tanukiReact("jump", 950);
+    schedule(function () {
+      fillCollectSlot(slotIndex, spriteMarkup(animal.id, "collected"));
+      audio.play("land", slotIndex);
+      completeStep();
+    }, motion(120, 900));
+  });
+}
+
+/* ------------------------------------------------------------- literacy */
+function renderLiteracyRound() {
+  const parts = buildStageFrame("stage-literacy stage-" + state.activity);
+  const catalog = literacyCatalog(state.activity);
+  const chart = el("div", "letter-chart chart-" + state.activity);
+  chart.setAttribute("id", "letter-chart");
+
+  catalog.forEach(function (entry) {
+    const cell = el("button", "letter-cell");
+    cell.type = "button";
+    cell.setAttribute("data-letter", entry.id);
+    cell.setAttribute("aria-label", entry.label);
+    cell.style.setProperty("--col", String(entry.column + 1));
+    cell.style.setProperty("--row", String(entry.row + 1));
+    cell.innerHTML = '<span class="letter-glyph">' + entry.glyph
+      + (entry.secondary ? '<small>' + entry.secondary + "</small>" : "")
+      + "</span>";
+    if (state.sessionFound[entry.id]) cell.classList.add("is-found");
+    chart.appendChild(cell);
+    /* Every cell is live, not just the answer: tapping any letter makes it
+     * say its own sound, so exploring the chart is itself the lesson. */
+    on(cell, "click", function () {
+      resolveTap(entry.id, cell);
+    });
+  });
+
+  parts.play.appendChild(chart);
+  buildCollectSlots(parts.collect, state.round.targets.length);
+  /* Slots already earned in earlier rounds stay visible in the finish screen,
+   * so only this round's slots are rebuilt here. */
+  startLiteracyQuest();
+}
+
+function startLiteracyQuest() {
+  const target = state.round.targets[state.stepIndex];
+  const bubble = dom.stage.querySelector(".ask-bubble-body");
+  bubble.innerHTML = '<span class="ask-letter">' + target.glyph
+    + (target.secondary ? '<small>' + target.secondary + "</small>" : "")
+    + "</span>";
+
+  startQuest({
+    targetId: target.id,
+    announce: function () {
+      speakLetter(target);
+    },
+    findTarget: function () {
+      return dom.stage.querySelector('.letter-cell[data-letter="' + target.id + '"]');
+    },
+    onCorrect: function (cell) {
+      collectLetter(cell, target);
+    },
+    onWrong: function (cell, id) {
+      const catalog = literacyCatalog(state.activity);
+      let tapped = null;
+      for (let index = 0; index < catalog.length; index += 1) {
+        if (catalog[index].id === id) tapped = catalog[index];
+      }
+      audio.play("tap");
+      pulse(cell);
+      if (tapped) audio.speak(tapped.speak, tapped.lang);
+      schedule(function () {
+        announceRepeat();
+      }, 1600);
+    },
+  });
+}
+
+function speakLetter(entry) {
+  if (state.activity === "hiragana") {
+    audio.speak(entry.speak + ACTIVITY_META.hiragana.askSuffix, "ja-JP");
+  } else {
+    audio.speak(entry.speak, "en-US");
+  }
+}
+
+function pictureFor(entry) {
+  if (!entry.sprite) return null;
+  if (entry.bonusSprite && !state.bonusSprites) return null;
+  return entry.sprite;
+}
+
+function collectLetter(cell, target) {
+  const slotIndex = state.solved;
+  const slot = dom.stage.querySelector('[data-collect="' + slotIndex + '"]');
+  state.sessionFound[target.id] = true;
+  cell.classList.add("is-found", "is-landing");
+  audio.play("correct");
+  burst(cell, state.activity === "hiragana" ? "#ef7465" : "#5a94d0", 14);
+  tanukiReact("jump", 950);
+  audio.speak(target.speak, target.lang);
+
+  const glyphHtml = '<span class="collected-letter">' + target.glyph
+    + (target.secondary ? "<small>" + target.secondary + "</small>" : "") + "</span>";
+  flyTo(cell, slot, "fly-letter", glyphHtml, function () {
+    fillCollectSlot(slotIndex, glyphHtml);
+    audio.play("land", slotIndex);
+    showWordReward(target, function () {
+      completeStep();
+    });
+  });
+}
+
+/* The reward card turns a bare letter into a word the child already knows. */
+function showWordReward(target, onFinish) {
+  const picture = pictureFor(target);
+  if (!target.word) {
+    schedule(onFinish, motion(80, 420));
+    return;
+  }
+  const card = el("div", "word-reward");
+  card.innerHTML = (picture ? spriteMarkup(picture, "word-sprite") : "")
+    + '<strong>' + target.word + "</strong>";
+  dom.fx.appendChild(card);
+  animate(
+    card,
+    [
+      { opacity: 0, transform: "translate(-50%,-50%) scale(.6)" },
+      { opacity: 1, transform: "translate(-50%,-50%) scale(1)", offset: 0.2 },
+      { opacity: 1, transform: "translate(-50%,-50%) scale(1)", offset: 0.8 },
+      { opacity: 0, transform: "translate(-50%,-50%) scale(.9)" },
+    ],
+    { duration: motion(160, 1500), easing: "ease-out", fill: "forwards" },
+    function () {
+      if (card.parentNode) card.parentNode.removeChild(card);
+      onFinish();
+    },
+  );
+  /* Late enough that the letter sound itself has finished playing. */
+  schedule(function () {
+    audio.speak(target.word, target.lang, { rate: target.lang === "en-US" ? 0.68 : 0.76 });
+  }, motion(40, 700));
+}
+
+/* ------------------------------------------------------------ round flow */
+function completeStep() {
+  state.solved += 1;
+  state.stepIndex += 1;
+  state.busy = false;
+  /* No question is on the board until the next one is posed, so a tap in the
+   * gap can never be scored against the request that was just answered. */
+  state.quest = null;
+  clearHintClasses();
+  hideHand();
+  const total = targetsPerRound(state.activity);
+  if (state.solved >= total) {
+    schedule(completeRound, motion(120, 700));
+    return;
+  }
+  const pause = motion(140, STEP_PACING[state.activity] || 900);
+  if (state.solved % PRAISE_EVERY === 0) {
+    audio.speak(nextPraise(), "ja-JP", { delay: Math.max(700, pause - 250) });
+  }
+  schedule(function () {
+    if (state.activity === "farm") startFarmQuest();
+    else if (state.activity === "animal") startAnimalQuest();
+    else startLiteracyQuest();
+  }, pause);
 }
 
 function renderRound() {
   clearRuntime();
-  state.roundAbort = new AbortController();
-  state.busy = false;
-  state.completedCount = 0;
-  state.literacyTargetIndex = 0;
-  const curriculumIndex = state.progress.curriculum[state.activity] || 0;
-  state.round = createRound(state.activity, state.roundIndex, { curriculumIndex });
-  elements.activityLayer.replaceChildren();
-  setActorForActivity();
+  state.stepIndex = 0;
+  state.solved = 0;
+  state.round = createRound(state.activity, state.roundIndex, {
+    curriculumIndex: state.progress.curriculum[state.activity],
+  });
   updateHud();
-
   if (state.activity === "farm") renderFarmRound();
   else if (state.activity === "animal") renderAnimalRound();
   else renderLiteracyRound();
+  bindShellControls();
 }
 
 function updateHud() {
   const meta = ACTIVITY_META[state.activity];
-  elements.modeIcon.textContent = meta.icon;
-  elements.modeTitle.textContent = meta.title;
-  elements.roundPips.innerHTML = Array.from({ length: ROUNDS_PER_ACTIVITY }, (_, index) => `<i class="${index <= state.roundIndex ? "is-filled" : ""}"></i>`).join("");
-}
-
-/* Farm: every item starts in an authored growing place and remains on the shelf. */
-function renderFarmRound() {
-  const world = document.createElement("div");
-  world.className = `farm-world farm-scene-${state.round.scene}`;
-  const scene = document.createElement("div");
-  scene.className = "farm-scene";
-  const shelf = document.createElement("div");
-  shelf.id = "harvest-shelf";
-  shelf.className = "harvest-shelf";
-  shelf.setAttribute("aria-label", "収穫したものを並べる棚");
-  shelf.innerHTML = state.round.items.map((item, index) => `<button type="button" class="harvest-slot" data-slot="${index}" aria-label="${item.label}の置き場所"></button>`).join("");
-
-  state.round.items.forEach((item, index) => {
-    const plot = document.createElement("div");
-    plot.className = `farm-plot source-${item.source}`;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `farm-produce origin-${item.source}`;
-    button.dataset.item = item.id;
-    button.setAttribute("aria-label", `${item.label}を収穫する`);
-    button.innerHTML = `<span class="produce-sprite world-sprite cell-${item.id}" aria-hidden="true"></span>`;
-    installFarmDrag(button, item, index);
-    plot.append(button);
-    scene.append(plot);
-  });
-
-  world.append(scene, shelf);
-  elements.activityLayer.append(world);
-  const first = scene.querySelector(".farm-produce");
-  const firstItem = state.round.items[0];
-  if (firstItem.source === "root") showDirectionalHint(first, { dx: 0, dy: -75 });
-  else showHintBetween(first, shelf);
-}
-
-function installFarmDrag(button, item, slotIndex) {
-  let pointerId = null;
-  let startX = 0;
-  let startY = 0;
-  let latestX = 0;
-  let latestY = 0;
-  let tapCount = 0;
-  const signal = state.roundAbort.signal;
-
-  button.addEventListener("pointerdown", (event) => {
-    if (state.busy || pointerId !== null || button.classList.contains("is-harvested")) return;
-    pointerId = event.pointerId;
-    startX = latestX = event.clientX;
-    startY = latestY = event.clientY;
-    button.setPointerCapture(pointerId);
-    button.classList.add("is-dragging", "is-lifting");
-    button.style.setProperty("--drag-scale", "1.08");
-    hideHint();
-    setPose(elements.actor, "reach");
-    audio.play(item.source === "root" ? "lift" : "touch");
-  }, { signal });
-
-  button.addEventListener("pointermove", (event) => {
-    if (event.pointerId !== pointerId || !button.hasPointerCapture(pointerId)) return;
-    latestX = event.clientX;
-    latestY = event.clientY;
-    button.style.setProperty("--drag-x", `${latestX - startX}px`);
-    button.style.setProperty("--drag-y", `${latestY - startY}px`);
-  }, { signal });
-
-  const finish = (event) => {
-    if (event.pointerId !== pointerId) return;
-    if (button.hasPointerCapture(pointerId)) button.releasePointerCapture(pointerId);
-    const distance = dragDistance(startX, startY, latestX, latestY);
-    const upwardPull = startY - latestY;
-    const shelfRect = document.querySelector("#harvest-shelf")?.getBoundingClientRect();
-    const reachedShelf = isPointInsideRect({ x: latestX, y: latestY }, shelfRect, 35);
-    pointerId = null;
-    button.classList.remove("is-dragging");
-
-    const harvested = item.source === "root" ? upwardPull >= 34 || reachedShelf : distance >= 44 || reachedShelf;
-    if (harvested) {
-      harvestFarmItem(button, item, slotIndex);
-      return;
-    }
-    if (distance < 12) tapCount += 1;
-    if (tapCount >= 2) {
-      harvestFarmItem(button, item, slotIndex);
-      return;
-    }
-    button.classList.remove("is-lifting");
-    resetDragStyle(button);
-    setPose(elements.actor, ACTIVITY_META.farm.actorPose);
-    audio.play("return");
-    gentleWiggle(button);
-    schedule(() => item.source === "root" ? showDirectionalHint(button, { dx: 0, dy: -75 }) : showHintBetween(button, document.querySelector("#harvest-shelf")), 520);
-  };
-  button.addEventListener("pointerup", finish, { signal });
-  button.addEventListener("pointercancel", finish, { signal });
-}
-
-function harvestFarmItem(button, item, slotIndex) {
-  if (state.busy || button.classList.contains("is-harvested")) return;
-  state.busy = true;
-  hideHint();
-  button.classList.add("is-harvested", "is-lifting");
-  resetDragStyle(button);
-  setPose(elements.actor, "reach");
-  audio.play(item.source === "root" ? "root" : "pluck");
-  burstAt(button, item.source === "root" ? "#9d6b47" : "#67aa62", 10, item.source === "root" ? "soil" : "leaf");
-  const slot = document.querySelector(`[data-slot="${slotIndex}"]`);
-
-  flySprite(button.querySelector(".produce-sprite"), slot, `cell-${item.id}`, () => {
-    slot.classList.add("is-filled");
-    slot.innerHTML = `<i class="harvested-item world-sprite cell-${item.id}" aria-hidden="true"></i>`;
-    state.completedCount += 1;
-    state.sessionResults.push({ type: "sprite", id: item.id });
-    audio.play("drop", state.completedCount);
-    audio.speak(item.label, "ja-JP");
-    reactTanuki("♥");
-    state.busy = false;
-    if (state.completedCount === state.round.items.length) {
-      schedule(completeRound, state.settings.reduceMotion ? 180 : 850);
-    } else {
-      const next = document.querySelector(".farm-produce:not(.is-harvested)");
-      const nextItem = state.round.items.find((candidate) => candidate.id === next?.dataset.item);
-      schedule(() => nextItem?.source === "root" ? showDirectionalHint(next, { dx: 0, dy: -75 }) : showHintBetween(next, document.querySelector("#harvest-shelf")), 850);
-    }
-  });
-}
-
-/* Animals: drag freely, match in any order, and keep every match in the habitat. */
-function renderAnimalRound() {
-  const world = document.createElement("div");
-  world.className = `animal-world animal-scene-${state.round.scene}`;
-  world.innerHTML = '<div class="habitat-decoration" aria-hidden="true"></div><div class="animal-targets" id="animal-targets"></div><div class="animal-dock" id="animal-dock"></div>';
-  const targets = world.querySelector("#animal-targets");
-  const dock = world.querySelector("#animal-dock");
-
-  state.round.targets.forEach((animal, index) => {
-    const home = document.createElement("div");
-    home.className = "animal-home";
-    home.dataset.animal = animal.id;
-    home.style.setProperty("--dance-index", String(index));
-    home.setAttribute("aria-label", `${animal.label}の形`);
-    home.innerHTML = `<i class="animal-shadow world-sprite cell-${animal.id}" aria-hidden="true"></i><i class="matched-animal world-sprite cell-${animal.id}" aria-hidden="true"></i>`;
-    targets.append(home);
-  });
-
-  state.round.animals.forEach((animal) => {
-    const token = document.createElement("button");
-    token.type = "button";
-    token.className = "animal-token";
-    token.dataset.animal = animal.id;
-    token.setAttribute("aria-label", `${animal.label}を同じ形へ運ぶ`);
-    token.innerHTML = `<span class="animal-token-sprite world-sprite cell-${animal.id}" aria-hidden="true"></span>`;
-    installAnimalDrag(token, animal);
-    dock.append(token);
-  });
-
-  elements.activityLayer.append(world);
-  const first = dock.querySelector(".animal-token");
-  const target = targets.querySelector(`[data-animal="${first.dataset.animal}"]`);
-  showHintBetween(first, target);
-}
-
-function installAnimalDrag(token, animal) {
-  let pointerId = null;
-  let startX = 0;
-  let startY = 0;
-  let latestX = 0;
-  let latestY = 0;
-  let tapCount = 0;
-  const signal = state.roundAbort.signal;
-
-  token.addEventListener("pointerdown", (event) => {
-    if (state.busy || pointerId !== null || token.classList.contains("is-matched")) return;
-    pointerId = event.pointerId;
-    startX = latestX = event.clientX;
-    startY = latestY = event.clientY;
-    token.setPointerCapture(pointerId);
-    token.classList.add("is-dragging");
-    token.style.setProperty("--drag-scale", "1.12");
-    hideHint();
-    setPose(elements.actor, "reach");
-    audio.play("animalLift");
-    audio.speak(animal.label, "ja-JP");
-  }, { signal });
-
-  token.addEventListener("pointermove", (event) => {
-    if (event.pointerId !== pointerId || !token.hasPointerCapture(pointerId)) return;
-    latestX = event.clientX;
-    latestY = event.clientY;
-    token.style.setProperty("--drag-x", `${latestX - startX}px`);
-    token.style.setProperty("--drag-y", `${latestY - startY}px`);
-  }, { signal });
-
-  const finish = (event) => {
-    if (event.pointerId !== pointerId) return;
-    if (token.hasPointerCapture(pointerId)) token.releasePointerCapture(pointerId);
-    pointerId = null;
-    token.classList.remove("is-dragging");
-    const targetUnderPointer = [...document.querySelectorAll(".animal-home:not(.is-matched)")].find((home) => isPointInsideRect({ x: latestX, y: latestY }, home.getBoundingClientRect(), 24));
-    const distance = dragDistance(startX, startY, latestX, latestY);
-    if (targetUnderPointer?.dataset.animal === animal.id) {
-      matchAnimal(token, targetUnderPointer, animal);
-      return;
-    }
-    if (distance < 12) tapCount += 1;
-    if (tapCount >= 2) {
-      matchAnimal(token, document.querySelector(`.animal-home[data-animal="${animal.id}"]`), animal);
-      return;
-    }
-    resetDragStyle(token);
-    setPose(elements.actor, ACTIVITY_META.animal.actorPose);
-    audio.play("return");
-    if (targetUnderPointer) gentleWiggle(targetUnderPointer);
-    thinkTanuki();
-    schedule(() => showHintBetween(token, document.querySelector(`.animal-home[data-animal="${animal.id}"]`)), 600);
-  };
-  token.addEventListener("pointerup", finish, { signal });
-  token.addEventListener("pointercancel", finish, { signal });
-}
-
-function matchAnimal(token, home, animal) {
-  if (!home || state.busy || token.classList.contains("is-matched")) return;
-  state.busy = true;
-  hideHint();
-  resetDragStyle(token);
-  token.classList.add("is-matched");
-  home.classList.add("is-inviting");
-  setPose(elements.actor, "reach");
-  flySprite(token.querySelector(".animal-token-sprite"), home, `cell-${animal.id}`, () => {
-    home.classList.remove("is-inviting");
-    home.classList.add("is-matched");
-    state.completedCount += 1;
-    state.sessionResults.push({ type: "sprite", id: animal.id });
-    audio.play("match");
-    audio.speak(animal.label, "ja-JP");
-    burstAt(home, "#f7d35b", 12, "spark");
-    reactTanuki("♥");
-    state.busy = false;
-    if (state.completedCount === state.round.animals.length) {
-      document.querySelector(".animal-world")?.classList.add("is-complete");
-      schedule(completeRound, state.settings.reduceMotion ? 180 : 900);
-    } else {
-      const next = document.querySelector(".animal-token:not(.is-matched)");
-      schedule(() => showHintBetween(next, document.querySelector(`.animal-home[data-animal="${next?.dataset.animal}"]`)), 900);
-    }
-  });
-}
-
-/* Literacy: hear a target, move its matching sound bubble to tanuki, keep the set. */
-function renderLiteracyRound() {
-  const world = document.createElement("div");
-  world.className = "literacy-world";
-  world.innerHTML = `
-    <div class="sound-sparkles" aria-hidden="true"></div>
-    <div class="sound-prompt" id="sound-prompt"><div class="prompt-glyph" id="prompt-glyph"></div><button class="prompt-speaker" id="prompt-speaker" type="button" aria-label="もう一度聞く">♪</button></div>
-    <div class="sound-options" id="sound-options"></div>
-    <div class="sound-nest is-ready" id="sound-nest" aria-label="たぬきへ文字を届ける場所"></div>
-    <div class="letter-collection" id="letter-collection">${state.round.targets.map((_, index) => `<div class="letter-slot" data-letter-slot="${index}">●</div>`).join("")}</div>`;
-  elements.activityLayer.append(world);
-  world.querySelector("#prompt-speaker").addEventListener("click", () => speakCurrentTarget(true), { signal: state.roundAbort.signal });
-  showLiteracyTarget();
-}
-
-function showLiteracyTarget() {
-  const target = state.round.targets[state.literacyTargetIndex];
-  const options = state.round.choices[target.id];
-  document.querySelector("#prompt-glyph").innerHTML = formatGlyph(target);
-  const optionsLayer = document.querySelector("#sound-options");
-  optionsLayer.replaceChildren();
-
-  options.forEach((choice, index) => {
-    const tile = document.createElement("button");
-    tile.type = "button";
-    tile.className = "sound-tile";
-    tile.dataset.letter = choice.id;
-    tile.style.setProperty("--tile-color", TILE_COLORS[index % TILE_COLORS.length]);
-    tile.setAttribute("aria-label", `${choice.label}の音`);
-    tile.innerHTML = `<span class="tile-glyph">${formatGlyph(choice)}</span>`;
-    installLetterDrag(tile, choice, target);
-    optionsLayer.append(tile);
-  });
-
-  schedule(() => speakCurrentTarget(true), 350);
-  const correct = optionsLayer.querySelector(`[data-letter="${target.id}"]`);
-  schedule(() => showHintBetween(correct, document.querySelector("#sound-nest")), 700);
-}
-
-function formatGlyph(item) {
-  return item.secondary ? `${item.glyph}<small>${item.secondary}</small>` : item.glyph;
-}
-
-function speakCurrentTarget(withEffect = false) {
-  const target = state.round?.targets?.[state.literacyTargetIndex];
-  if (!target) return;
-  audio.speak(target.speak, target.lang);
-  if (withEffect) {
-    const speaker = document.querySelector("#prompt-speaker");
-    speaker?.classList.remove("is-speaking");
-    requestAnimationFrame(() => speaker?.classList.add("is-speaking"));
-    schedule(() => speaker?.classList.remove("is-speaking"), 650);
+  dom.modeIcon.textContent = meta.icon;
+  dom.modeTitle.textContent = meta.title;
+  let pips = "";
+  for (let index = 0; index < ROUNDS_PER_ACTIVITY; index += 1) {
+    pips += '<i class="' + (index <= state.roundIndex ? "is-filled" : "") + '"></i>';
   }
-}
-
-function installLetterDrag(tile, choice, target) {
-  let pointerId = null;
-  let startX = 0;
-  let startY = 0;
-  let latestX = 0;
-  let latestY = 0;
-  const signal = state.roundAbort.signal;
-
-  tile.addEventListener("pointerdown", (event) => {
-    if (state.busy || pointerId !== null) return;
-    pointerId = event.pointerId;
-    startX = latestX = event.clientX;
-    startY = latestY = event.clientY;
-    tile.setPointerCapture(pointerId);
-    tile.classList.add("is-dragging");
-    tile.style.setProperty("--drag-scale", "1.12");
-    hideHint();
-    setPose(elements.actor, "reach");
-    audio.play("touch");
-    audio.speak(choice.speak, choice.lang);
-  }, { signal });
-
-  tile.addEventListener("pointermove", (event) => {
-    if (event.pointerId !== pointerId || !tile.hasPointerCapture(pointerId)) return;
-    latestX = event.clientX;
-    latestY = event.clientY;
-    tile.style.setProperty("--drag-x", `${latestX - startX}px`);
-    tile.style.setProperty("--drag-y", `${latestY - startY}px`);
-  }, { signal });
-
-  const finish = (event) => {
-    if (event.pointerId !== pointerId) return;
-    if (tile.hasPointerCapture(pointerId)) tile.releasePointerCapture(pointerId);
-    pointerId = null;
-    tile.classList.remove("is-dragging");
-    const nest = document.querySelector("#sound-nest");
-    const atNest = isPointInsideRect({ x: latestX, y: latestY }, nest.getBoundingClientRect(), 30);
-    const distance = dragDistance(startX, startY, latestX, latestY);
-    if (atNest && choice.id === target.id) {
-      collectLetter(tile, target);
-      return;
-    }
-    if (choice.id === target.id && distance < 12) {
-      collectLetter(tile, target);
-      return;
-    }
-    resetDragStyle(tile);
-    setPose(elements.actor, ACTIVITY_META[state.activity].actorPose);
-    audio.play("return");
-    if (atNest) {
-      gentleWiggle(tile);
-      thinkTanuki();
-      schedule(() => speakCurrentTarget(true), 420);
-    }
-    schedule(() => showHintBetween(document.querySelector(`[data-letter="${target.id}"]`), nest), 650);
-  };
-  tile.addEventListener("pointerup", finish, { signal });
-  tile.addEventListener("pointercancel", finish, { signal });
-}
-
-function collectLetter(tile, target) {
-  if (state.busy || tile.classList.contains("is-used")) return;
-  state.busy = true;
-  hideHint();
-  resetDragStyle(tile);
-  tile.classList.add("is-used");
-  const slot = document.querySelector(`[data-letter-slot="${state.literacyTargetIndex}"]`);
-  const source = tile.querySelector(".tile-glyph");
-  flyText(source, slot, formatGlyph(target), () => {
-    slot.classList.add("is-filled");
-    slot.innerHTML = formatGlyph(target);
-    state.completedCount += 1;
-    state.sessionResults.push({ type: "letter", glyph: target.glyph, secondary: target.secondary || "" });
-    audio.play("word");
-    audio.speak(target.speak, target.lang);
-    burstAt(slot, state.activity === "hiragana" ? "#ef7465" : "#5a94d0", 12, "spark");
-    reactTanuki("♪");
-    schedule(() => {
-      state.literacyTargetIndex += 1;
-      if (state.literacyTargetIndex >= state.round.targets.length) {
-        state.busy = false;
-        completeRound();
-      } else {
-        state.busy = false;
-        setPose(elements.actor, ACTIVITY_META[state.activity].actorPose);
-        showLiteracyTarget();
-      }
-    }, state.settings.reduceMotion ? 180 : 900);
-  });
+  dom.pips.innerHTML = pips;
 }
 
 function completeRound() {
-  if (elements.activityLayer.classList.contains("round-complete")) return;
   state.busy = true;
-  hideHint();
-  elements.activityLayer.classList.add("round-complete");
-  setPose(elements.actor, "jump");
-  reactTanuki("★", true);
+  state.quest = null;
+  hideHand();
+  clearHintClasses();
   audio.play("celebrate");
-  createCelebrationBurst();
+  audio.speak("できたね", "ja-JP", { delay: 260 });
+  tanukiReact("jump", 1600);
+  burst(dom.stage.querySelector(".ask-tanuki"), "#f7d35b", 20);
   const isLast = state.roundIndex + 1 >= ROUNDS_PER_ACTIVITY;
-  elements.nextRoundButton.querySelector("strong").textContent = isLast ? "できた" : "つぎへ";
-  schedule(() => { elements.roundComplete.hidden = false; }, state.settings.reduceMotion ? 70 : 420);
+  dom.nextButton.querySelector("strong").textContent = isLast ? "できた！" : "つぎへ";
+  schedule(function () {
+    dom.roundComplete.hidden = false;
+  }, motion(60, 520));
 }
 
 function advanceFromComplete() {
-  const next = advanceRound(state.roundIndex);
   audio.play("next");
+  const next = advanceRound(state.roundIndex);
   if (next.complete) {
     finishSession();
     return;
   }
+  /* Carry this board's results forward so the finish screen can celebrate the
+   * whole session, not just whatever happened to be on screen last. */
+  state.sessionResults = collectSessionResults();
   state.roundIndex = next.roundIndex;
+  renderRound();
+}
+
+function startMode(activity) {
+  clearRuntime();
+  state.activity = normalizeActivity(activity);
+  state.roundIndex = 0;
+  state.sessionResults = [];
+  state.sessionFound = {};
+  document.body.className = document.body.className
+    .split(" ")
+    .filter(function (name) {
+      return name.indexOf("activity-") !== 0;
+    })
+    .join(" ");
+  document.body.classList.add("activity-" + state.activity);
+  showScreen("game");
+  audio.unlock();
+  audio.play("open");
   renderRound();
 }
 
 function finishSession() {
   const activity = state.activity;
-  const results = [...state.sessionResults];
+  const results = collectSessionResults();
   clearRuntime();
   state.activity = activity;
-  state.sessionResults = results;
   state.progress.sessions += 1;
   state.progress.completed[activity] += 1;
   if (activity === "hiragana" || activity === "alphabet") {
-    state.progress.curriculum[activity] = nextCurriculumIndex(activity, state.progress.curriculum[activity]);
+    state.progress.curriculum[activity] = nextCurriculumIndex(
+      activity,
+      state.progress.curriculum[activity],
+    );
   }
   saveProgress();
-  renderFinish();
+  renderFinish(results);
   showScreen("finish");
   audio.play("celebrate");
+  audio.speak("ぜんぶ できたね。すごーい", "ja-JP", { delay: 420 });
 }
 
-function renderFinish() {
+function collectSessionResults() {
+  const filled = dom.stage.querySelectorAll(".collect-slot.is-filled");
+  const results = [];
+  for (let index = 0; index < filled.length; index += 1) {
+    results.push(filled[index].innerHTML);
+  }
+  return state.sessionResults.concat(results);
+}
+
+function renderFinish(results) {
   const meta = ACTIVITY_META[state.activity];
-  elements.finishKicker.textContent = meta.finishKicker;
-  elements.finishTitle.textContent = meta.finishTitle;
-  const results = selectFinishResults(state.sessionResults);
-  elements.finishResults.innerHTML = results.map((result, index) => {
-    if (result.type === "sprite") return `<i class="finish-result world-sprite cell-${result.id}" style="--result-index:${index}"></i>`;
-    return `<i class="finish-result letter-result" style="--result-index:${index}">${result.glyph}${result.secondary ? `<small>${result.secondary}</small>` : ""}</i>`;
-  }).join("");
-  createFinishConfetti();
+  dom.finishKicker.textContent = meta.finishKicker;
+  dom.finishTitle.textContent = meta.finishTitle;
+  const shown = results.length <= 6 ? results : pickEvenly(results, 6);
+  dom.finishResults.innerHTML = shown
+    .map(function (html, index) {
+      return '<div class="finish-result" style="--result-index:' + index + '">' + html + "</div>";
+    })
+    .join("");
+  renderConfetti();
 }
 
-function selectFinishResults(results) {
-  if (results.length <= 6) return results;
-  const step = (results.length - 1) / 5;
-  return Array.from({ length: 6 }, (_, index) => results[Math.round(index * step)]);
+function pickEvenly(items, count) {
+  const step = (items.length - 1) / (count - 1);
+  const picked = [];
+  for (let index = 0; index < count; index += 1) {
+    picked.push(items[Math.round(index * step)]);
+  }
+  return picked;
+}
+
+function renderConfetti() {
+  clear(dom.confetti);
+  if (state.settings.reduceMotion) return;
+  const colors = ["#ef7065", "#f6cc4f", "#65bde1", "#74b97a", "#9b70cf"];
+  for (let index = 0; index < 34; index += 1) {
+    const piece = el("i", "");
+    piece.style.setProperty("--x", Math.random() * 100 + "vw");
+    piece.style.setProperty("--delay", Math.random() * 1.3 + "s");
+    piece.style.setProperty("--drift", -70 + Math.random() * 140 + "px");
+    piece.style.background = colors[index % colors.length];
+    dom.confetti.appendChild(piece);
+  }
 }
 
 function returnHome() {
   clearRuntime();
-  state.busy = false;
-  if (elements.parentDialog.open) elements.parentDialog.close();
-  setBodyActivity(null);
-  setPose(elements.homeTanuki, "wave");
+  document.body.className = document.body.className
+    .split(" ")
+    .filter(function (name) {
+      return name.indexOf("activity-") !== 0;
+    })
+    .join(" ");
+  closeParentOverlay();
   showScreen("home");
 }
 
-/* Shared motion and feedback */
-function resetDragStyle(element) {
-  element.style.setProperty("--drag-x", "0px");
-  element.style.setProperty("--drag-y", "0px");
-  element.style.setProperty("--drag-scale", "1");
+/* Controls that live in the shell must be rebound after every teardown. */
+function bindShellControls() {
+  on(dom.nextButton, "click", advanceFromComplete);
+  on(query("#game-home-button"), "click", returnHome);
+  on(query("#game-adult-button"), "click", openParentOverlay);
 }
 
-function flySprite(source, target, cellClass, onFinish) {
-  const sourceRect = source.getBoundingClientRect();
-  const targetRect = target.getBoundingClientRect();
-  const clone = document.createElement("i");
-  clone.className = `world-sprite ${cellClass}`;
-  Object.assign(clone.style, {
-    position: "fixed", zIndex: "165", pointerEvents: "none",
-    left: `${sourceRect.left}px`, top: `${sourceRect.top}px`,
-    width: `${sourceRect.width}px`, height: `${sourceRect.height}px`,
-    filter: "drop-shadow(0 15px 10px rgba(55,55,34,.24))",
-  });
-  elements.particleLayer.append(clone);
-  const dx = targetRect.left + targetRect.width / 2 - (sourceRect.left + sourceRect.width / 2);
-  const dy = targetRect.top + targetRect.height / 2 - (sourceRect.top + sourceRect.height / 2);
-  animate(clone, [
-    { transform: "translate(0,0) scale(1) rotate(0deg)" },
-    { transform: `translate(${dx * .48}px,${dy * .35 - 45}px) scale(1.08) rotate(7deg)`, offset: .52 },
-    { transform: `translate(${dx}px,${dy}px) scale(.52) rotate(-4deg)` },
-  ], { duration: state.settings.reduceMotion ? 130 : 620, easing: "cubic-bezier(.18,.78,.24,1)", fill: "forwards" }, () => {
-    clone.remove();
-    onFinish?.();
-  });
+/* --------------------------------------------------------- parent screen */
+function openParentOverlay() {
+  audio.stop();
+  dom.parentGate.hidden = false;
+  dom.parentSettings.hidden = true;
+  query("#gate-feedback").textContent = "";
+  dom.parentOverlay.hidden = false;
 }
 
-function flyText(source, target, html, onFinish) {
-  const sourceRect = source.getBoundingClientRect();
-  const targetRect = target.getBoundingClientRect();
-  const clone = document.createElement("i");
-  clone.innerHTML = html;
-  Object.assign(clone.style, {
-    position: "fixed", zIndex: "165", pointerEvents: "none", display: "grid", placeItems: "center",
-    left: `${sourceRect.left}px`, top: `${sourceRect.top}px`, width: `${sourceRect.width}px`, height: `${sourceRect.height}px`,
-    fontSize: getComputedStyle(source).fontSize, fontWeight: "900", fontStyle: "normal",
-  });
-  elements.particleLayer.append(clone);
-  const dx = targetRect.left + targetRect.width / 2 - (sourceRect.left + sourceRect.width / 2);
-  const dy = targetRect.top + targetRect.height / 2 - (sourceRect.top + sourceRect.height / 2);
-  animate(clone, [
-    { transform: "translate(0,0) scale(1) rotate(0deg)" },
-    { transform: `translate(${dx * .45}px,${dy * .38 - 55}px) scale(1.15) rotate(-7deg)`, offset: .5 },
-    { transform: `translate(${dx}px,${dy}px) scale(.55) rotate(4deg)` },
-  ], { duration: state.settings.reduceMotion ? 130 : 620, easing: "cubic-bezier(.18,.78,.24,1)", fill: "forwards" }, () => {
-    clone.remove();
-    onFinish?.();
-  });
-}
-
-function reactTanuki(symbol = "♥", holdPose = false) {
-  elements.reaction.querySelector("span").textContent = symbol;
-  elements.reaction.classList.remove("is-visible");
-  elements.actor.classList.remove("is-reacting", "is-thinking");
-  setPose(elements.actor, "jump");
-  requestAnimationFrame(() => {
-    elements.reaction.classList.add("is-visible");
-    elements.actor.classList.add("is-reacting");
-  });
-  schedule(() => {
-    elements.reaction.classList.remove("is-visible");
-    elements.actor.classList.remove("is-reacting");
-    if (!holdPose && !elements.activityLayer.classList.contains("round-complete")) setPose(elements.actor, ACTIVITY_META[state.activity].actorPose);
-  }, 940);
-}
-
-function thinkTanuki() {
-  elements.actor.classList.remove("is-thinking");
-  setPose(elements.actor, "wave");
-  requestAnimationFrame(() => elements.actor.classList.add("is-thinking"));
-  schedule(() => elements.actor.classList.remove("is-thinking"), 520);
-}
-
-function gentleWiggle(element) {
-  element?.classList.remove("is-wiggling");
-  requestAnimationFrame(() => element?.classList.add("is-wiggling"));
-  schedule(() => element?.classList.remove("is-wiggling"), 440);
-}
-
-function showHintBetween(source, target, delay = 480) {
-  if (!source || !target || state.settings.reduceMotion || state.busy) return;
-  const sourceRect = source.getBoundingClientRect();
-  const targetRect = target.getBoundingClientRect();
-  showDirectionalHint(source, {
-    dx: targetRect.left + targetRect.width / 2 - (sourceRect.left + sourceRect.width / 2),
-    dy: targetRect.top + targetRect.height / 2 - (sourceRect.top + sourceRect.height / 2),
-  }, delay);
-}
-
-function showDirectionalHint(source, offset, delay = 480) {
-  if (!source || state.settings.reduceMotion || state.busy) return;
-  hideHint();
-  const rect = source.getBoundingClientRect();
-  elements.gestureHint.style.setProperty("--hint-x", `${rect.left + rect.width / 2}px`);
-  elements.gestureHint.style.setProperty("--hint-y", `${rect.top + rect.height / 2}px`);
-  elements.gestureHint.style.setProperty("--hint-dx", `${offset.dx}px`);
-  elements.gestureHint.style.setProperty("--hint-dy", `${offset.dy}px`);
-  state.hintTimer = schedule(() => {
-    state.hintTimer = null;
-    if (!state.busy) elements.gestureHint.classList.add("is-visible");
-  }, delay);
-}
-
-function hideHint() {
-  if (state.hintTimer !== null) {
-    clearTimeout(state.hintTimer);
-    state.timers.delete(state.hintTimer);
-    state.hintTimer = null;
-  }
-  elements.gestureHint.classList.remove("is-visible");
-}
-
-function burstAt(element, color, amount, type = "spark") {
-  if (state.settings.reduceMotion || !element) return;
-  const rect = element.getBoundingClientRect();
-  for (let index = 0; index < amount; index += 1) {
-    const angle = Math.PI * 2 * index / amount + Math.random() * .3;
-    const distance = 35 + Math.random() * 62;
-    const particle = document.createElement("i");
-    particle.className = `play-particle particle-${type}`;
-    particle.style.left = `${rect.left + rect.width / 2}px`;
-    particle.style.top = `${rect.top + rect.height / 2}px`;
-    particle.style.background = color;
-    particle.style.setProperty("--dx", `${Math.cos(angle) * distance}px`);
-    particle.style.setProperty("--dy", `${Math.sin(angle) * distance}px`);
-    elements.particleLayer.append(particle);
-    schedule(() => particle.remove(), 850);
-  }
-}
-
-function createCelebrationBurst() {
-  burstAt(elements.actor, "#f7d35b", state.settings.reduceMotion ? 0 : 20, "spark");
-}
-
-function createFinishConfetti() {
-  elements.finishConfetti.replaceChildren();
-  if (state.settings.reduceMotion) return;
-  const colors = ["#ef7065", "#f6cc4f", "#65bde1", "#74b97a", "#9b70cf"];
-  for (let index = 0; index < 38; index += 1) {
-    const piece = document.createElement("i");
-    piece.style.setProperty("--x", `${Math.random() * 100}vw`);
-    piece.style.setProperty("--delay", `${Math.random() * 1.25}s`);
-    piece.style.setProperty("--drift", `${-75 + Math.random() * 150}px`);
-    piece.style.background = colors[index % colors.length];
-    elements.finishConfetti.append(piece);
-  }
-}
-
-/* Parent controls and persistence */
-function openParentDialog() {
-  window.speechSynthesis?.cancel();
-  elements.parentGate.hidden = false;
-  elements.parentSettings.hidden = true;
-  elements.gateFeedback.textContent = "";
-  elements.parentDialog.showModal();
+function closeParentOverlay() {
+  dom.parentOverlay.hidden = true;
 }
 
 function unlockParentSettings() {
-  elements.parentGate.hidden = true;
-  elements.parentSettings.hidden = false;
-  elements.effectsSetting.checked = state.settings.effects;
-  elements.voiceSetting.checked = state.settings.voice;
-  elements.motionSetting.checked = state.settings.reduceMotion;
-  elements.sessionCount.textContent = `${state.progress.sessions}回`;
+  dom.parentGate.hidden = true;
+  dom.parentSettings.hidden = false;
+  dom.effectsSetting.checked = state.settings.effects;
+  dom.voiceSetting.checked = state.settings.voice;
+  dom.motionSetting.checked = state.settings.reduceMotion;
+  dom.sessionCount.textContent = state.progress.sessions + "回";
 }
 
 function saveSettings() {
-  localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(state.settings));
+  writeStorage(STORAGE_KEYS.settings, JSON.stringify(state.settings));
 }
 
 function saveProgress() {
-  localStorage.setItem(STORAGE_KEYS.progress, JSON.stringify(state.progress));
+  writeStorage(STORAGE_KEYS.progress, JSON.stringify(state.progress));
 }
 
-elements.modeButtons.forEach((button) => button.addEventListener("click", () => startMode(button.dataset.mode)));
-elements.nextRoundButton.addEventListener("click", advanceFromComplete);
-elements.replayButton.addEventListener("click", () => startMode(state.activity));
-elements.finishHomeButton.addEventListener("click", returnHome);
-elements.gameHomeButton.addEventListener("click", returnHome);
-elements.adultButtons.forEach((button) => button.addEventListener("click", openParentDialog));
-elements.dialogClose.addEventListener("click", () => elements.parentDialog.close());
-elements.parentDialog.addEventListener("click", (event) => { if (event.target === elements.parentDialog) elements.parentDialog.close(); });
-elements.gateButtons.forEach((button) => button.addEventListener("click", () => {
-  if (button.dataset.gate === "5") unlockParentSettings();
-  else {
-    elements.gateFeedback.textContent = "もう一度お試しください";
-    gentleWiggle(button);
+/* ------------------------------------------------------------------ boot */
+function bindPermanentControls() {
+  for (let index = 0; index < dom.modeButtons.length; index += 1) {
+    (function (button) {
+      button.addEventListener("click", function () {
+        startMode(button.getAttribute("data-mode"));
+      });
+    })(dom.modeButtons[index]);
   }
-}));
-elements.effectsSetting.addEventListener("change", () => {
-  state.settings.effects = elements.effectsSetting.checked;
-  saveSettings();
-  if (state.settings.effects) audio.play("touch");
-});
-elements.voiceSetting.addEventListener("change", () => {
-  state.settings.voice = elements.voiceSetting.checked;
-  saveSettings();
-  if (state.settings.voice) audio.speak("こんにちは", "ja-JP");
-});
-elements.motionSetting.addEventListener("change", () => {
-  state.settings.reduceMotion = elements.motionSetting.checked;
-  document.body.classList.toggle("reduce-motion", state.settings.reduceMotion);
-  saveSettings();
-});
-elements.resetButton.addEventListener("click", () => {
-  state.progress.sessions = 0;
-  state.progress.completed = Object.fromEntries(ACTIVITY_ORDER.map((activity) => [activity, 0]));
-  state.progress.curriculum = { hiragana: 0, alphabet: 0 };
-  saveProgress();
-  elements.sessionCount.textContent = "0回";
-  audio.play("return");
-});
-window.addEventListener("resize", () => {
-  if (state.screen === "game") positionActor();
-});
-
-document.body.classList.toggle("reduce-motion", state.settings.reduceMotion);
-
-if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (refreshing || sessionStorage.getItem("ponpoko-sw-v5-reloaded")) return;
-    refreshing = true;
-    sessionStorage.setItem("ponpoko-sw-v5-reloaded", "1");
-    window.location.reload();
+  query("#adult-button").addEventListener("click", openParentOverlay);
+  query("#replay-button").addEventListener("click", function () {
+    startMode(state.activity);
   });
-  window.addEventListener("load", () => navigator.serviceWorker.register("./service-worker.js").catch(() => {}));
+  query("#finish-home-button").addEventListener("click", returnHome);
+  query("#overlay-close").addEventListener("click", closeParentOverlay);
+  dom.parentOverlay.addEventListener("click", function (event) {
+    if (event.target === dom.parentOverlay) closeParentOverlay();
+  });
+
+  const gateButtons = document.querySelectorAll("[data-gate]");
+  for (let index = 0; index < gateButtons.length; index += 1) {
+    (function (button) {
+      button.addEventListener("click", function () {
+        if (button.getAttribute("data-gate") === "5") unlockParentSettings();
+        else {
+          query("#gate-feedback").textContent = "もう一度お試しください";
+          wiggle(button);
+        }
+      });
+    })(gateButtons[index]);
+  }
+
+  dom.effectsSetting.addEventListener("change", function () {
+    state.settings.effects = dom.effectsSetting.checked;
+    saveSettings();
+    if (state.settings.effects) audio.play("tap");
+  });
+  dom.voiceSetting.addEventListener("change", function () {
+    state.settings.voice = dom.voiceSetting.checked;
+    saveSettings();
+    if (state.settings.voice) audio.speak("こんにちは", "ja-JP");
+  });
+  dom.motionSetting.addEventListener("change", function () {
+    state.settings.reduceMotion = dom.motionSetting.checked;
+    document.body.classList.toggle("reduce-motion", state.settings.reduceMotion);
+    saveSettings();
+  });
+  query("#reset-button").addEventListener("click", function () {
+    state.progress.sessions = 0;
+    ACTIVITY_ORDER.forEach(function (activity) {
+      state.progress.completed[activity] = 0;
+    });
+    state.progress.curriculum = { hiragana: 0, alphabet: 0 };
+    saveProgress();
+    dom.sessionCount.textContent = "0回";
+    audio.play("next");
+  });
+  query("#repair-button").addEventListener("click", repairInstallation);
+
+  document.addEventListener(
+    "pointerdown",
+    function () {
+      audio.unlock();
+    },
+    { once: true },
+  );
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) audio.stop();
+  });
+  /* Two-finger or accidental gestures must never scroll the play surface. */
+  document.addEventListener(
+    "touchmove",
+    function (event) {
+      if (event.touches.length > 1) event.preventDefault();
+    },
+    { passive: false },
+  );
 }
+
+/* Clears every cached copy and reloads: the escape hatch for a bad install. */
+function repairInstallation() {
+  const done = function () {
+    window.location.reload();
+  };
+  try {
+    const jobs = [];
+    if (window.caches && window.caches.keys) {
+      jobs.push(
+        window.caches.keys().then(function (keys) {
+          return Promise.all(
+            keys.map(function (key) {
+              return window.caches.delete(key);
+            }),
+          );
+        }),
+      );
+    }
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      jobs.push(
+        navigator.serviceWorker.getRegistrations().then(function (registrations) {
+          return Promise.all(
+            registrations.map(function (registration) {
+              return registration.unregister();
+            }),
+          );
+        }),
+      );
+    }
+    if (!jobs.length) {
+      done();
+      return;
+    }
+    Promise.all(jobs).then(done, done);
+    window.setTimeout(done, 1500);
+  } catch (error) {
+    done();
+  }
+}
+
+/*
+ * The optional ABC picture sheet is declared by the build, not probed at
+ * runtime: a missing file must never cost a network round trip or log a 404.
+ */
+function readAssetFlags() {
+  const flags = window.__ponpokoAssets || {};
+  state.bonusSprites = flags.abc === true;
+  if (state.bonusSprites) document.body.classList.add("has-abc-sprites");
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  if (window.location.protocol === "file:") return;
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("./service-worker.js").catch(function () {});
+  });
+}
+
+function boot() {
+  buildShell();
+  document.body.classList.toggle("reduce-motion", state.settings.reduceMotion);
+  bindPermanentControls();
+  readAssetFlags();
+  registerServiceWorker();
+  showScreen("home");
+  if (dom.buildStamp) dom.buildStamp.textContent = "v6";
+  window.__ponpokoBooted = true;
+  document.documentElement.classList.add("app-ready");
+}
+
+boot();
+
+/* Exposed only so the browser smoke test can drive the app deterministically. */
+window.__ponpoko = {
+  state: state,
+  startMode: startMode,
+  catalogs: { HIRAGANA: HIRAGANA, ALPHABET: ALPHABET, ANIMALS: ANIMALS, FARM_ITEMS: FARM_ITEMS },
+};

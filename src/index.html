@@ -5,123 +5,262 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <meta name="theme-color" content="#bfe5df" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="ぽんぽこの森" />
-    <meta name="description" content="たぬきと農園・動物・ひらがな・ABCで遊ぶ、iPad向け知育ゲーム。" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="description" content="たぬきと農園・どうぶつ・ひらがな・ABCで遊ぶ、iPad向け知育ゲーム。" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <link rel="stylesheet" href="./styles.css" />
     <title>ぽんぽこ もりの だいぼうけん</title>
   </head>
   <body>
     <main id="app" class="app" data-screen="home">
+      <!-- ------------------------------------------------------- home -->
       <section id="home-screen" class="screen home-screen is-active" aria-labelledby="app-title">
-        <div class="home-scenery" aria-hidden="true">
-          <span class="sun"></span><span class="cloud cloud-a"></span><span class="cloud cloud-b"></span>
-          <span class="hill hill-a"></span><span class="hill hill-b"></span>
-          <span class="tree tree-a"></span><span class="tree tree-b"></span>
-        </div>
+        <div class="home-sky" aria-hidden="true"></div>
 
         <header class="home-header">
           <div class="logo-lockup">
             <span class="logo-leaf" aria-hidden="true"></span>
-            <div><p>たぬきと いっしょに</p><h1 id="app-title">ぽんぽこ もりの だいぼうけん</h1></div>
+            <div>
+              <p>たぬきと いっしょに</p>
+              <h1 id="app-title">ぽんぽこ もりの だいぼうけん</h1>
+            </div>
           </div>
-          <button class="adult-button" id="adult-button" type="button" aria-label="保護者メニューを開く"><span aria-hidden="true">⚙</span><small>おとな</small></button>
+          <button class="icon-button adult-button" id="adult-button" type="button" aria-label="保護者メニューを開く">
+            <span aria-hidden="true">⚙</span><small>おとな</small>
+          </button>
         </header>
 
-        <div class="home-content">
+        <div class="home-body">
           <div class="home-guide" aria-hidden="true">
             <div id="home-tanuki" class="home-tanuki tanuki-sprite pose-wave"></div>
-            <div class="home-guide-bubble"><span>どれで<br />あそぶ？</span></div>
+            <div class="home-bubble"><span>どれで<br />あそぶ？</span></div>
           </div>
-          <nav class="mode-menu" aria-label="あそびを選ぶ">
-            <button class="mode-card mode-farm" type="button" data-mode="farm" aria-label="ぽんぽこ農園で遊ぶ">
-              <span class="mode-art farm-art" aria-hidden="true"><i class="world-sprite cell-apple"></i><i class="world-sprite cell-carrot"></i></span>
-              <strong>のうえん</strong><small>とって はこぶ</small>
+
+          <nav class="mode-menu" aria-label="あそびを えらぶ">
+            <button class="mode-card mode-farm" type="button" data-mode="farm" aria-label="のうえんで あそぶ">
+              <span class="mode-art" aria-hidden="true">
+                <i class="sprite cell-apple"></i><i class="sprite cell-carrot"></i>
+              </span>
+              <strong>のうえん</strong><small>さがして しゅうかく</small>
             </button>
-            <button class="mode-card mode-animal" type="button" data-mode="animal" aria-label="どうぶつ広場で遊ぶ">
-              <span class="mode-art animal-art" aria-hidden="true"><i class="world-sprite cell-dog"></i><i class="world-sprite cell-elephant"></i></span>
-              <strong>どうぶつ</strong><small>おなじを みつける</small>
+            <button class="mode-card mode-animal" type="button" data-mode="animal" aria-label="どうぶつで あそぶ">
+              <span class="mode-art" aria-hidden="true">
+                <i class="sprite cell-dog"></i><i class="sprite cell-elephant"></i>
+              </span>
+              <strong>どうぶつ</strong><small>かげを あてる</small>
             </button>
-            <button class="mode-card mode-hiragana" type="button" data-mode="hiragana" aria-label="ひらがなの音で遊ぶ">
-              <span class="mode-art letter-art" aria-hidden="true">あ</span>
-              <strong>ひらがな</strong><small>きいて はこぶ</small>
+            <button class="mode-card mode-hiragana" type="button" data-mode="hiragana" aria-label="ひらがなで あそぶ">
+              <span class="mode-art mode-art-letter" aria-hidden="true"><b>あ</b></span>
+              <strong>ひらがな</strong><small>もじを さがす</small>
             </button>
-            <button class="mode-card mode-alphabet" type="button" data-mode="alphabet" aria-label="アルファベットの音で遊ぶ">
-              <span class="mode-art letter-art alphabet-art" aria-hidden="true">A<span>a</span></span>
-              <strong>ABC</strong><small>きいて はこぶ</small>
+            <button class="mode-card mode-alphabet" type="button" data-mode="alphabet" aria-label="ABCで あそぶ">
+              <span class="mode-art mode-art-letter mode-art-abc" aria-hidden="true"><b>A<i>a</i></b></span>
+              <strong>ABC</strong><small>もじを さがす</small>
             </button>
           </nav>
         </div>
       </section>
 
-      <section id="game-screen" class="screen game-screen" aria-label="知育あそび">
-        <div id="game-backdrop" class="game-backdrop" aria-hidden="true">
-          <span class="sun"></span><span class="cloud cloud-a"></span><span class="cloud cloud-b"></span>
-          <span class="hill hill-a"></span><span class="hill hill-b"></span>
-        </div>
+      <!-- ------------------------------------------------------- play -->
+      <section id="game-screen" class="screen game-screen" aria-label="あそび">
+        <div id="game-backdrop" class="game-backdrop" aria-hidden="true"></div>
+
         <header class="game-hud">
-          <button class="hud-button" id="game-home-button" type="button" aria-label="あそびを選ぶ画面にもどる"><span aria-hidden="true">⌂</span></button>
-          <div class="mode-progress" aria-live="polite">
-            <span id="mode-icon" class="mode-icon">●</span>
-            <div><strong id="mode-title">ぽんぽこ農園</strong><span id="round-pips" class="round-pips"></span></div>
+          <button class="icon-button" id="game-home-button" type="button" aria-label="あそびを えらぶ画面に もどる">
+            <span aria-hidden="true">⌂</span>
+          </button>
+          <div class="mode-pill">
+            <span id="mode-icon" class="mode-pill-icon" aria-hidden="true">●</span>
+            <div><strong id="mode-title">のうえん</strong><span id="round-pips" class="round-pips" aria-hidden="true"></span></div>
           </div>
-          <button class="hud-button" id="game-adult-button" type="button" aria-label="保護者メニューを開く"><span aria-hidden="true">⚙</span></button>
+          <button class="icon-button" id="game-adult-button" type="button" aria-label="保護者メニューを開く">
+            <span aria-hidden="true">⚙</span>
+          </button>
         </header>
 
-        <div id="activity-layer" class="activity-layer"></div>
-        <div id="tanuki-actor" class="tanuki-actor tanuki-sprite pose-wave" aria-label="いっしょに遊ぶたぬき"></div>
-        <div id="tanuki-reaction" class="tanuki-reaction" aria-hidden="true"><span>♥</span></div>
-        <div id="gesture-hint" class="gesture-hint" aria-hidden="true"><i></i></div>
-        <div id="particle-layer" class="particle-layer" aria-hidden="true"></div>
+        <div id="stage" class="stage"></div>
+
+        <div id="tap-hand" class="tap-hand" aria-hidden="true"><i></i></div>
+        <div id="fx-layer" class="fx-layer" aria-hidden="true"></div>
 
         <div id="round-complete" class="round-complete" hidden>
           <div class="complete-glow" aria-hidden="true"></div>
-          <button id="next-round-button" class="next-round-button" type="button" aria-label="次へ進む"><span aria-hidden="true">▶</span><strong>つぎへ</strong></button>
-        </div>
-
-        <div id="activity-curtain" class="activity-curtain" hidden>
-          <div id="curtain-demo" class="curtain-demo" aria-hidden="true"></div>
-          <strong id="curtain-title">ぽんぽこ農園</strong>
-          <div class="curtain-tanuki tanuki-sprite pose-wave" aria-hidden="true"></div>
+          <button id="next-round-button" class="next-round-button" type="button" aria-label="つぎへ すすむ">
+            <span aria-hidden="true">▶</span><strong>つぎへ</strong>
+          </button>
         </div>
       </section>
 
+      <!-- ----------------------------------------------------- finish -->
       <section id="finish-screen" class="screen finish-screen" aria-labelledby="finish-title">
-        <div class="finish-scenery" aria-hidden="true"><span class="sun"></span><span class="finish-hill"></span><div class="finish-carpet"></div></div>
-        <div id="finish-results" class="finish-results" aria-hidden="true"></div>
+        <div class="finish-sky" aria-hidden="true"><span class="finish-hill"></span></div>
+        <div class="finish-copy">
+          <p id="finish-kicker">ぽんぽこ ぽーん！</p>
+          <h2 id="finish-title">できたね！</h2>
+        </div>
         <div class="finish-tanuki tanuki-sprite pose-jump" aria-hidden="true"></div>
-        <div class="finish-copy"><p id="finish-kicker">ぽんぽこ ぽーん！</p><h2 id="finish-title">できたね！</h2></div>
-        <button class="replay-button" id="replay-button" type="button"><span aria-hidden="true">↻</span><strong>もういっかい</strong></button>
-        <button class="finish-home-button" id="finish-home-button" type="button">ほかの あそび</button>
+        <div id="finish-results" class="finish-results" aria-hidden="true"></div>
+        <div class="finish-actions">
+          <button class="replay-button" id="replay-button" type="button">
+            <span aria-hidden="true">↻</span><strong>もういっかい</strong>
+          </button>
+          <button class="finish-home-button" id="finish-home-button" type="button">ほかの あそび</button>
+        </div>
         <div id="finish-confetti" class="finish-confetti" aria-hidden="true"></div>
       </section>
     </main>
 
-    <dialog id="parent-dialog" class="parent-dialog" aria-labelledby="parent-title">
-      <div class="dialog-surface">
-        <button class="dialog-close" id="dialog-close" type="button" aria-label="閉じる">×</button>
+    <!-- --------------------------------------------------- parent menu -->
+    <div id="parent-overlay" class="overlay" hidden>
+      <div class="overlay-card" role="dialog" aria-labelledby="parent-title" aria-modal="true">
+        <button class="overlay-close" id="overlay-close" type="button" aria-label="閉じる">×</button>
+
         <section id="parent-gate">
-          <p class="dialog-kicker">おとなの方へ</p><h2 id="parent-title">保護者メニュー</h2>
+          <p class="overlay-kicker">おとなの方へ</p>
+          <h2 id="parent-title">保護者メニュー</h2>
           <p>誤操作を防ぐため、答えを選んでください。</p>
           <div class="gate-question">2 ＋ 3 ＝ ?</div>
-          <div class="gate-options"><button type="button" data-gate="4">4</button><button type="button" data-gate="5">5</button><button type="button" data-gate="6">6</button></div>
+          <div class="gate-options">
+            <button type="button" data-gate="4">4</button>
+            <button type="button" data-gate="5">5</button>
+            <button type="button" data-gate="6">6</button>
+          </div>
           <p id="gate-feedback" class="gate-feedback" aria-live="polite"></p>
         </section>
+
         <section id="parent-settings" hidden>
-          <p class="dialog-kicker">おとなの方へ</p><h2>遊びかたの設定</h2>
+          <p class="overlay-kicker">おとなの方へ</p>
+          <h2>あそびかたの設定</h2>
           <div class="session-summary"><span>できた あそび</span><strong id="session-count">0回</strong></div>
-          <label class="setting-row"><span><strong>やさしい効果音</strong><small>収穫・移動・成功に合った短い音を鳴らします</small></span><input id="effects-setting" type="checkbox" checked /></label>
-          <label class="setting-row"><span><strong>ことばの音声</strong><small>物の名前、ひらがな、ABCを日本語・英語で発音します</small></span><input id="voice-setting" type="checkbox" checked /></label>
-          <label class="setting-row"><span><strong>動きをひかえめに</strong><small>大きな移動や紙吹雪を少なくします</small></span><input id="motion-setting" type="checkbox" /></label>
-          <div class="parent-note"><strong>今回の知育設計</strong><p>自然な場所から収穫する、動物と影を合わせる、文字の形と音を結び付ける4つの遊びです。間違えても減点せず、対象は完成まで画面に残ります。</p></div>
-          <button class="reset-button" id="reset-button" type="button">記録をリセット</button>
+
+          <label class="setting-row">
+            <span><strong>やさしい効果音</strong><small>収穫・正解・完成に合った短い音を鳴らします</small></span>
+            <input id="effects-setting" type="checkbox" checked />
+          </label>
+          <label class="setting-row">
+            <span><strong>ことばの音声</strong><small>物の名前、ひらがな、ABCを読み上げます</small></span>
+            <input id="voice-setting" type="checkbox" checked />
+          </label>
+          <label class="setting-row">
+            <span><strong>動きをひかえめに</strong><small>大きな移動や紙吹雪を減らします</small></span>
+            <input id="motion-setting" type="checkbox" />
+          </label>
+
+          <div class="parent-note">
+            <strong>この4つの知育設計</strong>
+            <p>
+              のうえん＝名前を聞いて探す語彙あそび。どうぶつ＝影の形あわせ。
+              ひらがな＝五十音表から探す文字あそび。ABC＝A〜Zの表から探す文字あそび。
+              まちがえても減点はなく、押したものが自分の名前を教えてくれます。
+            </p>
+          </div>
+
+          <div class="parent-tools">
+            <button class="text-button" id="reset-button" type="button">記録をリセット</button>
+            <button class="text-button" id="repair-button" type="button">再インストール（不具合時）</button>
+          </div>
+          <p class="build-line">バージョン <span id="build-stamp">v6</span></p>
         </section>
       </div>
-    </dialog>
+    </div>
 
-    <noscript>このあそびにはJavaScriptが必要です。Safariの設定をご確認ください。</noscript>
-    <script type="module" src="./app.js"></script>
+    <!-- ------------------------------------------------ boot diagnostics -->
+    <div id="boot-error" class="boot-error" hidden>
+      <div class="boot-error-card">
+        <h2>うまく はじめられませんでした</h2>
+        <p>下のボタンを押すと、保存された古いデータを消してやり直します。</p>
+        <button id="boot-repair" type="button">なおして もういちど</button>
+        <pre id="boot-detail"></pre>
+      </div>
+    </div>
+
+    <noscript>
+      <p style="padding: 24px; font-size: 20px">このあそびにはJavaScriptが必要です。Safariの設定をご確認ください。</p>
+    </noscript>
+
+    <!-- Optional artwork present in this build. Rewritten by scripts/build.mjs. -->
+    <script>
+      window.__ponpokoAssets = { abc: false };
+    </script>
+
+    <!--
+      Classic boot watchdog. It runs before the app and never uses modern
+      syntax, so even a browser that cannot parse the app itself can still show
+      a readable failure and offer the repair path.
+    -->
+    <script>
+      (function () {
+        var messages = [];
+        function record(text) {
+          if (!text) return;
+          messages.push(String(text));
+        }
+        window.addEventListener("error", function (event) {
+          record(event.message + " @ " + (event.filename || "?") + ":" + (event.lineno || 0));
+        });
+        window.addEventListener("unhandledrejection", function (event) {
+          record("promise: " + (event.reason && event.reason.message ? event.reason.message : event.reason));
+        });
+        function repair() {
+          var jobs = [];
+          try {
+            if (window.caches && window.caches.keys) {
+              jobs.push(
+                window.caches.keys().then(function (keys) {
+                  return Promise.all(
+                    keys.map(function (key) {
+                      return window.caches.delete(key);
+                    })
+                  );
+                })
+              );
+            }
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              jobs.push(
+                navigator.serviceWorker.getRegistrations().then(function (list) {
+                  return Promise.all(
+                    list.map(function (item) {
+                      return item.unregister();
+                    })
+                  );
+                })
+              );
+            }
+            try {
+              window.localStorage.clear();
+            } catch (storageError) {
+              /* ignored */
+            }
+          } catch (error) {
+            /* ignored */
+          }
+          function reload() {
+            window.location.reload(true);
+          }
+          if (jobs.length) Promise.all(jobs).then(reload, reload);
+          else reload();
+          window.setTimeout(reload, 1600);
+        }
+        window.setTimeout(function () {
+          if (window.__ponpokoBooted) return;
+          var panel = document.getElementById("boot-error");
+          var detail = document.getElementById("boot-detail");
+          if (!panel) return;
+          if (detail) {
+            detail.textContent = (messages.length ? messages.join("\n") : "初期化が完了しませんでした")
+              + "\n" + navigator.userAgent;
+          }
+          panel.hidden = false;
+          var button = document.getElementById("boot-repair");
+          if (button) button.addEventListener("click", repair);
+        }, 5000);
+      })();
+    </script>
+    <script defer src="./app.js"></script>
   </body>
 </html>

@@ -1,224 +1,246 @@
-export const ACTIVITY_ORDER = ["farm", "animal", "hiragana", "alphabet"];
-export const ROUNDS_PER_ACTIVITY = 3;
+/*
+ * Pure game rules. No DOM, no timers, no storage — everything here is
+ * deterministic given an injected `random`, so tests/game-core.test.mjs can
+ * verify the whole curriculum without a browser.
+ */
 
-export const FRUITS = [
-  { id: "apple", label: "りんご", kind: "fruit", source: "tree" },
-  { id: "orange", label: "みかん", kind: "fruit", source: "tree" },
-  { id: "grape", label: "ぶどう", kind: "fruit", source: "trellis" },
-  { id: "peach", label: "もも", kind: "fruit", source: "tree" },
-  { id: "cherry", label: "さくらんぼ", kind: "fruit", source: "tree" },
-  { id: "lemon", label: "レモン", kind: "fruit", source: "tree" },
-  { id: "strawberry", label: "いちご", kind: "fruit", source: "bush" },
-  { id: "watermelon", label: "スイカ", kind: "fruit", source: "vine" },
-  { id: "banana", label: "バナナ", kind: "fruit", source: "banana-tree" },
-];
+import {
+  ACTIVITY_ORDER,
+  ALPHABET,
+  ANIMALS,
+  ANIMAL_ROUNDS,
+  FARM_ITEMS,
+  FARM_ROUNDS,
+  HIRAGANA,
+  ROUNDS_PER_ACTIVITY,
+} from "./content.js";
 
-export const VEGETABLES = [
-  { id: "daikon", label: "だいこん", kind: "vegetable", source: "root" },
-  { id: "cabbage", label: "キャベツ", kind: "vegetable", source: "ground" },
-  { id: "pumpkin", label: "かぼちゃ", kind: "vegetable", source: "vine" },
-  { id: "carrot", label: "にんじん", kind: "vegetable", source: "root" },
-  { id: "onion", label: "たまねぎ", kind: "vegetable", source: "root" },
-  { id: "edamame", label: "えだまめ", kind: "vegetable", source: "bush" },
-  { id: "cucumber", label: "きゅうり", kind: "vegetable", source: "trellis" },
-  { id: "eggplant", label: "なす", kind: "vegetable", source: "bush" },
-  { id: "sweet-potato", label: "さつまいも", kind: "vegetable", source: "root" },
-];
+export const FARM_TARGETS_PER_ROUND = 6;
+export const ANIMAL_TARGETS_PER_ROUND = 4;
+export const LITERACY_TARGETS_PER_ROUND = 5;
+export const LITERACY_TARGETS_PER_SESSION = LITERACY_TARGETS_PER_ROUND * ROUNDS_PER_ACTIVITY;
 
-export const FARM_ITEMS = [...FRUITS, ...VEGETABLES];
+/* Idle milliseconds before each successive hint stage. A wrong tap counts as
+ * one full stage, so a child who is guessing is guided sooner rather than
+ * later. Stage 3 always points directly at the tappable target. */
+export const HINT_STAGE_DELAYS = [3500, 7000, 10500];
 
-export const ANIMALS = [
-  { id: "dog", label: "いぬ" },
-  { id: "cat", label: "ねこ" },
-  { id: "panda", label: "パンダ" },
-  { id: "lion", label: "ライオン" },
-  { id: "elephant", label: "ぞう" },
-  { id: "giraffe", label: "キリン" },
-  { id: "hippo", label: "かば" },
-  { id: "monkey", label: "さる" },
-  { id: "zebra", label: "しまうま" },
-  { id: "camel", label: "ラクダ" },
-  { id: "pig", label: "ぶた" },
-  { id: "bird", label: "とり" },
-];
-
-export const HIRAGANA = [
-  ["a", "あ"], ["i", "い"], ["u", "う"], ["e", "え"], ["o", "お"],
-  ["ka", "か"], ["ki", "き"], ["ku", "く"], ["ke", "け"], ["ko", "こ"],
-  ["sa", "さ"], ["shi", "し"], ["su", "す"], ["se", "せ"], ["so", "そ"],
-  ["ta", "た"], ["chi", "ち"], ["tsu", "つ"], ["te", "て"], ["to", "と"],
-  ["na", "な"], ["ni", "に"], ["nu", "ぬ"], ["ne", "ね"], ["no", "の"],
-  ["ha", "は"], ["hi", "ひ"], ["fu", "ふ"], ["he", "へ"], ["ho", "ほ"],
-  ["ma", "ま"], ["mi", "み"], ["mu", "む"], ["me", "め"], ["mo", "も"],
-  ["ya", "や"], ["yu", "ゆ"], ["yo", "よ"],
-  ["ra", "ら"], ["ri", "り"], ["ru", "る"], ["re", "れ"], ["ro", "ろ"],
-  ["wa", "わ"], ["wo", "を"], ["n", "ん"],
-].map(([id, glyph]) => ({ id, glyph, label: glyph, speak: glyph, lang: "ja-JP" }));
-
-export const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((glyph) => ({
-  id: glyph.toLowerCase(),
-  glyph,
-  secondary: glyph.toLowerCase(),
-  label: glyph,
-  speak: glyph,
-  lang: "en-US",
-}));
-
-const FARM_ROUNDS = [
-  { scene: "orchard", ids: ["apple", "orange", "peach", "daikon", "carrot", "cabbage"] },
-  { scene: "trellis", ids: ["grape", "cherry", "strawberry", "edamame", "cucumber", "eggplant"] },
-  { scene: "sunny", ids: ["lemon", "banana", "watermelon", "pumpkin", "onion", "sweet-potato"] },
-];
-
-const ANIMAL_ROUNDS = [
-  { scene: "meadow", ids: ["dog", "cat", "pig", "bird"] },
-  { scene: "savanna", ids: ["lion", "elephant", "giraffe", "zebra"] },
-  { scene: "forest", ids: ["panda", "hippo", "monkey", "camel"] },
-];
-
-function byId(catalog, id) {
-  const item = catalog.find((entry) => entry.id === id);
-  if (!item) throw new Error(`Unknown catalog item: ${id}`);
-  return item;
-}
-
-export function shuffle(items, random = Math.random) {
-  const result = [...items];
+export function shuffle(items, random) {
+  const pick = random || Math.random;
+  const result = items.slice();
   for (let index = result.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(random() * (index + 1));
-    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+    const swapIndex = Math.floor(pick() * (index + 1));
+    const held = result[index];
+    result[index] = result[swapIndex];
+    result[swapIndex] = held;
   }
   return result;
 }
 
-export function createFarmRound(roundIndex) {
-  const normalizedIndex = modulo(roundIndex, FARM_ROUNDS.length);
-  const authored = FARM_ROUNDS[normalizedIndex];
-  return {
-    activity: "farm",
-    scene: authored.scene,
-    items: authored.ids.map((id, index) => ({
-      ...byId(FARM_ITEMS, id),
-      instanceId: `${id}-${normalizedIndex}-${index}`,
-    })),
-  };
-}
-
-export function createAnimalRound(roundIndex, random = Math.random) {
-  const normalizedIndex = modulo(roundIndex, ANIMAL_ROUNDS.length);
-  const authored = ANIMAL_ROUNDS[normalizedIndex];
-  const animals = authored.ids.map((id, index) => ({
-    ...byId(ANIMALS, id),
-    instanceId: `${id}-${normalizedIndex}-${index}`,
-  }));
-  return {
-    activity: "animal",
-    scene: authored.scene,
-    animals,
-    targets: shuffle(animals, random),
-  };
-}
-
-export function createChoiceSet(catalog, targetId, random = Math.random) {
-  const targetIndex = catalog.findIndex((entry) => entry.id === targetId);
-  if (targetIndex < 0) throw new Error(`Unknown learning target: ${targetId}`);
-  const decoys = [
-    catalog[modulo(targetIndex + 1, catalog.length)],
-    catalog[modulo(targetIndex - 1, catalog.length)],
-  ];
-  return shuffle([catalog[targetIndex], ...decoys], random);
-}
-
-export function createLiteracyRound(activity, roundIndex, curriculumIndex = 0, random = Math.random) {
-  const catalog = activity === "hiragana" ? HIRAGANA : activity === "alphabet" ? ALPHABET : null;
-  if (!catalog) throw new Error(`Unknown literacy activity: ${activity}`);
-  const start = curriculumIndex + modulo(roundIndex, ROUNDS_PER_ACTIVITY) * 3;
-  const targets = Array.from({ length: 3 }, (_, index) => catalog[modulo(start + index, catalog.length)]);
-  return {
-    activity,
-    targets,
-    choices: Object.fromEntries(targets.map((target) => [target.id, createChoiceSet(catalog, target.id, random)])),
-  };
-}
-
-export function createRound(activity, roundIndex, options = {}) {
-  if (activity === "farm") return createFarmRound(roundIndex);
-  if (activity === "animal") return createAnimalRound(roundIndex, options.random);
-  if (activity === "hiragana" || activity === "alphabet") {
-    return createLiteracyRound(activity, roundIndex, options.curriculumIndex, options.random);
+function byId(catalog, id) {
+  for (let index = 0; index < catalog.length; index += 1) {
+    if (catalog[index].id === id) return catalog[index];
   }
-  throw new Error(`Unknown activity: ${activity}`);
-}
-
-export function advanceRound(roundIndex, roundCount = ROUNDS_PER_ACTIVITY) {
-  const complete = roundIndex + 1 >= roundCount;
-  return { complete, roundIndex: complete ? roundIndex : roundIndex + 1 };
-}
-
-export function nextCurriculumIndex(activity, currentIndex, amount = 9) {
-  const catalog = activity === "hiragana" ? HIRAGANA : activity === "alphabet" ? ALPHABET : null;
-  if (!catalog) return Math.max(0, Math.floor(Number(currentIndex) || 0));
-  return modulo(Math.max(0, Math.floor(Number(currentIndex) || 0)) + amount, catalog.length);
-}
-
-export function normalizeActivity(value) {
-  const legacy = { fruit: "farm", vegetable: "farm", color: "farm", shape: "farm", count: "animal", all: "farm" };
-  const normalized = legacy[value] || value;
-  return ACTIVITY_ORDER.includes(normalized) ? normalized : "farm";
-}
-
-export function loadSavedState(settingsValue, progressValue, reduceMotionDefault = false) {
-  const settings = safeParse(settingsValue);
-  const progress = safeParse(progressValue);
-  const legacySound = settings.sound !== false;
-  return {
-    settings: {
-      effects: typeof settings.effects === "boolean" ? settings.effects : legacySound,
-      voice: typeof settings.voice === "boolean" ? settings.voice : legacySound,
-      reduceMotion: typeof settings.reduceMotion === "boolean" ? settings.reduceMotion : reduceMotionDefault,
-    },
-    progress: {
-      sessions: nonNegativeInteger(progress.sessions),
-      completed: Object.fromEntries(ACTIVITY_ORDER.map((activity) => [activity, nonNegativeInteger(progress.completed?.[activity])])),
-      curriculum: {
-        hiragana: modulo(nonNegativeInteger(progress.curriculum?.hiragana), HIRAGANA.length),
-        alphabet: modulo(nonNegativeInteger(progress.curriculum?.alphabet), ALPHABET.length),
-      },
-    },
-  };
-}
-
-export function clamp(value, minimum, maximum) {
-  return Math.min(Math.max(value, minimum), maximum);
-}
-
-export function dragDistance(startX, startY, endX, endY) {
-  const values = [startX, startY, endX, endY];
-  if (!values.every(Number.isFinite)) return 0;
-  return Math.hypot(endX - startX, endY - startY);
-}
-
-export function isPointInsideRect(point, rect, padding = 0) {
-  if (!point || !rect) return false;
-  return point.x >= rect.left - padding
-    && point.x <= rect.right + padding
-    && point.y >= rect.top - padding
-    && point.y <= rect.bottom + padding;
-}
-
-function nonNegativeInteger(value) {
-  return Math.max(0, Math.floor(Number(value) || 0));
+  throw new Error("Unknown catalog item: " + id);
 }
 
 function modulo(value, length) {
   return ((value % length) + length) % length;
 }
 
+function nonNegativeInteger(value) {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
 function safeParse(value) {
   if (!value) return {};
   try {
     return JSON.parse(value) || {};
-  } catch {
+  } catch (error) {
     return {};
   }
+}
+
+/* ------------------------------------------------------------------ farm */
+/*
+ * Six growing places are laid out on a fixed 3x2 board. Slot order is stable so
+ * the scene never reshuffles under the child's finger; only the request order
+ * is randomised.
+ */
+export function createFarmRound(roundIndex, random) {
+  const authored = FARM_ROUNDS[modulo(roundIndex, FARM_ROUNDS.length)];
+  const items = authored.ids.map(function (id, index) {
+    const item = byId(FARM_ITEMS, id);
+    return {
+      id: item.id,
+      label: item.label,
+      kind: item.kind,
+      habitat: item.habitat,
+      slot: index,
+    };
+  });
+  return {
+    activity: "farm",
+    sceneId: authored.id,
+    items: items,
+    quest: shuffle(items, random).map(function (item) {
+      return item.id;
+    }),
+  };
+}
+
+/* --------------------------------------------------------------- animals */
+/*
+ * One silhouette, several candidates. The candidate row grows from two to four
+ * across the session, which is the only difficulty knob the child ever meets.
+ */
+export function createAnimalRound(roundIndex, random) {
+  const authored = ANIMAL_ROUNDS[modulo(roundIndex, ANIMAL_ROUNDS.length)];
+  const choiceCount = Math.min(authored.choices, authored.ids.length);
+  const order = shuffle(authored.ids, random);
+  const steps = order.map(function (targetId) {
+    const decoys = shuffle(
+      authored.ids.filter(function (id) {
+        return id !== targetId;
+      }),
+      random,
+    ).slice(0, choiceCount - 1);
+    return {
+      targetId: targetId,
+      choices: shuffle([targetId].concat(decoys), random),
+    };
+  });
+  return {
+    activity: "animal",
+    sceneId: authored.id,
+    choiceCount: choiceCount,
+    steps: steps,
+  };
+}
+
+export function animalById(id) {
+  return byId(ANIMALS, id);
+}
+
+/* -------------------------------------------------------------- literacy */
+export function literacyCatalog(activity) {
+  if (activity === "hiragana") return HIRAGANA;
+  if (activity === "alphabet") return ALPHABET;
+  throw new Error("Unknown literacy activity: " + activity);
+}
+
+/*
+ * The whole chart is always on screen; only the requested letters advance.
+ * A session walks fifteen letters, and the saved curriculum index makes the
+ * next session continue where this one stopped.
+ */
+export function createLiteracyRound(activity, roundIndex, curriculumIndex) {
+  const catalog = literacyCatalog(activity);
+  const start = nonNegativeInteger(curriculumIndex)
+    + modulo(roundIndex, ROUNDS_PER_ACTIVITY) * LITERACY_TARGETS_PER_ROUND;
+  const targets = [];
+  for (let index = 0; index < LITERACY_TARGETS_PER_ROUND; index += 1) {
+    targets.push(catalog[modulo(start + index, catalog.length)]);
+  }
+  return { activity: activity, targets: targets };
+}
+
+export function nextCurriculumIndex(activity, currentIndex, amount) {
+  const step = amount === undefined ? LITERACY_TARGETS_PER_SESSION : amount;
+  let catalog;
+  try {
+    catalog = literacyCatalog(activity);
+  } catch (error) {
+    return nonNegativeInteger(currentIndex);
+  }
+  return modulo(nonNegativeInteger(currentIndex) + step, catalog.length);
+}
+
+/* ------------------------------------------------------------ progression */
+export function createRound(activity, roundIndex, options) {
+  const settings = options || {};
+  if (activity === "farm") return createFarmRound(roundIndex, settings.random);
+  if (activity === "animal") return createAnimalRound(roundIndex, settings.random);
+  if (activity === "hiragana" || activity === "alphabet") {
+    return createLiteracyRound(activity, roundIndex, settings.curriculumIndex);
+  }
+  throw new Error("Unknown activity: " + activity);
+}
+
+export function targetsPerRound(activity) {
+  if (activity === "farm") return FARM_TARGETS_PER_ROUND;
+  if (activity === "animal") return ANIMAL_TARGETS_PER_ROUND;
+  return LITERACY_TARGETS_PER_ROUND;
+}
+
+export function advanceRound(roundIndex, roundCount) {
+  const total = roundCount === undefined ? ROUNDS_PER_ACTIVITY : roundCount;
+  const complete = roundIndex + 1 >= total;
+  return { complete: complete, roundIndex: complete ? roundIndex : roundIndex + 1 };
+}
+
+export function normalizeActivity(value) {
+  const legacy = {
+    fruit: "farm",
+    vegetable: "farm",
+    color: "farm",
+    shape: "farm",
+    count: "animal",
+    all: "farm",
+  };
+  const normalized = legacy[value] || value;
+  return ACTIVITY_ORDER.indexOf(normalized) >= 0 ? normalized : "farm";
+}
+
+/* -------------------------------------------------------------- guidance */
+/*
+ * The single source of truth for "how much help is showing". Stage 0 is silent,
+ * stage 3 points a hand at the exact element the child must tap, which is why
+ * on-screen guidance can never disagree with the required action again.
+ */
+export function hintStage(idleMilliseconds, wrongTaps) {
+  const boost = Math.max(0, Math.floor(Number(wrongTaps) || 0));
+  const elapsed = Math.max(0, Number(idleMilliseconds) || 0);
+  let stage = boost;
+  for (let index = 0; index < HINT_STAGE_DELAYS.length; index += 1) {
+    if (elapsed >= HINT_STAGE_DELAYS[index]) stage = Math.max(stage, index + 1);
+  }
+  return Math.min(stage, HINT_STAGE_DELAYS.length);
+}
+
+/* -------------------------------------------------------------- storage */
+export function loadSavedState(settingsValue, progressValue, reduceMotionDefault) {
+  const settings = safeParse(settingsValue);
+  const progress = safeParse(progressValue);
+  const legacySound = settings.sound !== false;
+  const completed = {};
+  ACTIVITY_ORDER.forEach(function (activity) {
+    completed[activity] = nonNegativeInteger(
+      progress.completed ? progress.completed[activity] : 0,
+    );
+  });
+  return {
+    settings: {
+      effects: typeof settings.effects === "boolean" ? settings.effects : legacySound,
+      voice: typeof settings.voice === "boolean" ? settings.voice : legacySound,
+      reduceMotion:
+        typeof settings.reduceMotion === "boolean"
+          ? settings.reduceMotion
+          : reduceMotionDefault === true,
+    },
+    progress: {
+      sessions: nonNegativeInteger(progress.sessions),
+      completed: completed,
+      curriculum: {
+        hiragana: modulo(
+          nonNegativeInteger(progress.curriculum ? progress.curriculum.hiragana : 0),
+          HIRAGANA.length,
+        ),
+        alphabet: modulo(
+          nonNegativeInteger(progress.curriculum ? progress.curriculum.alphabet : 0),
+          ALPHABET.length,
+        ),
+      },
+    },
+  };
 }

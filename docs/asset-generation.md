@@ -1,17 +1,50 @@
-# 画像素材の生成記録
+# 画像素材の生成と加工
 
-すべてこのゲーム専用のオリジナル素材である。OpenAIの組み込み画像生成機能を使用し、平坦なクロマキー背景で生成後、imagegenスキル付属の`remove_chroma_key.py`でRGBA PNGへ変換した。生成元は`tmp/imagegen/`に置くが、`tmp/`はGit管理対象外である。
+すべてこのゲーム専用のオリジナル素材。OpenAIの画像生成でクロマキー背景のシートを作り、
+`remove_chroma_key.py`（imagegenスキル付属）でRGBA PNGに変換した。
+生成元は `tmp/imagegen/` に置くが、`tmp/` はGit管理対象外。
 
-## 配置
+## パイプライン
 
-- `assets/tanuki-sprites-v2.png`: 主役のたぬき、3列×2行、6ポーズ
-- `assets/fruit-sprites-v1.png`: 果物9種、3列×3行
-- `assets/vegetable-sprites-v1.png`: 野菜9種、3列×3行
-- `assets/animal-sprites-v1.png`: 動物12種、3列×4行
+```text
+生成（クロマキー） → 透明化 → assets/*.png（元シート・配布しない）
+                              ↓ scripts/make-sprites.py
+                          assets/sprites/*.png（1件1ファイル・配布する）
+                              ↓ scripts/make-icons.py
+                          public/apple-touch-icon.png ほか
+```
 
-## 透明化
+```bash
+.venv/bin/python scripts/make-sprites.py
+.venv/bin/python scripts/make-icons.py
+npm run build
+```
 
-果物と野菜はマゼンタ背景のため、紫色を保護する狭いマット範囲を使用した。
+## 元シート（`assets/`）
+
+- `tanuki-sprites-v2.png`: たぬき 3列×2行（手を振る／走る／手を伸ばす／かご／押す／跳ぶ）
+- `fruit-sprites-v1.png`: 果物9種 3列×3行
+- `vegetable-sprites-v1.png`: 野菜9種 3列×3行
+- `animal-sprites-v1.png`: 動物12種 3列×4行
+- `abc-sprites-v1.png`: **未作成**（下記「追加依頼中」）
+
+すべてのセルは正方形。分割時に拡大縮小しないので、さくらんぼとスイカの大小関係が保たれる。
+
+## なぜ分割するのか
+
+CSSスプライトシートを `background-size: 300% 300%` で切り出すと、
+表示サイズが格子の倍数にならない端末で**隣のセルが数ピクセルはみ出す**。
+実際に「にんじんの横に大根の白い先端が浮かぶ」不具合として出た。
+
+さらに元シートには、生成時にセル境界をまたいだ描画が残っている。
+`make-sprites.py` は連結成分解析で**最大成分の6%未満の孤立した断片を削除**する。
+さくらんぼの2粒やバナナの房は連結しているので残る。ねこのヒゲも残る。
+
+分割時に検出された断片: さくらんぼ、にんじん、ねこ、ぶた、たぬき（跳ぶ）。
+
+## 透明化（元シート作成時の記録）
+
+果物と野菜はマゼンタ背景。紫を保護する狭いマット範囲を使用。
 
 ```bash
 .venv/bin/python /absolute/path/to/remove_chroma_key.py \
@@ -23,60 +56,56 @@
   --opaque-threshold 55
 ```
 
-動物は緑背景で同じ狭いマット範囲を使用した。強い`--despill`は黄・茶系の毛色を損なうため採用していない。変更時は必ず透明角、輪郭の色、顔、全身、セル越境を目視検査する。
+動物は緑背景で同じ設定。強い `--despill` は黄・茶系の毛色を損なうため使わない。
+変更時は必ず、透明な角・輪郭の色・顔・全身・セル越境を目視検査する。
 
-## 果物プロンプト
+## 追加依頼中: `abc-sprites-v1.png`
 
-```text
-Use case: stylized-concept
-Asset type: production fruit sprite sheet for a toddler iPad web game
-Primary request: Create one strict 3-column by 3-row sprite sheet containing exactly nine isolated fruits in this exact cell order.
-Row 1: red apple with one green leaf; round orange mandarin with one green leaf; compact purple grape bunch with one green leaf.
-Row 2: pink peach with one green leaf; pair of bright red cherries joined by green stems; yellow lemon with one small green leaf.
-Row 3: red strawberry with green crown; single round dark-green watermelon with lighter stripes, not a slice; curved yellow banana bunch with three bananas.
-Scene/backdrop: perfectly flat solid #ff00ff chroma-key background for local background removal; one uniform color with no shadows, gradients, texture, floor plane, lighting variation, or frames.
-Style/medium: polished rounded 3D children's storybook game art, soft tactile clay-and-felt appearance, friendly and premium, for ages 1–2, matching a cheerful rounded tanuki.
-Composition/framing: exact evenly spaced 3 by 3 grid; each fruit centered independently in its cell; consistent visual scale and generous padding; full silhouette; no overlaps or cell crossing.
-Lighting/mood: bright soft studio lighting on the fruit only; joyful, saturated, immediately recognizable.
-Constraints: exactly nine fruits and no extras; no grid lines; no labels; no text; no numbers; no faces; no cast or contact shadows; no reflections; no watermark; crisp separated edges; do not use #ff00ff in any fruit.
-Avoid: realistic photography, baskets, plates, cut fruit except natural stems, clutter, cropping, inconsistent style.
-```
+ABCモードは、正解した文字に「A → Apple」のごほうびカードを出す。
+既存素材でA/B/C/D/E/G/H/L/M/O/P/S/W/Zの14文字は絵が用意できるが、
+**F I J K N Q R T U V X Y の12文字に絵がない**。
 
-## 野菜プロンプト
+このシートが `assets/abc-sprites-v1.png` として置かれれば、
+`make-sprites.py` が自動で分割し、ビルドが自動で機能を有効化する（コード変更は不要）。
+無い間は、その文字は絵なしの文字カードだけを出すので、壊れた表示にはならない。
+
+### 生成プロンプト
 
 ```text
 Use case: stylized-concept
-Asset type: production vegetable sprite sheet for a toddler iPad web game
-Primary request: Create one strict 3-column by 3-row sprite sheet containing exactly nine isolated vegetables in this exact cell order.
-Row 1: long white Japanese daikon radish with a leafy green top; round green cabbage; squat orange kabocha pumpkin with green stem.
-Row 2: orange carrot with leafy green top; golden onion bulb with green shoots; bright green edamame pod showing three bean bumps.
-Row 3: single curved dark-green cucumber; glossy purple eggplant with green cap; reddish-purple Japanese sweet potato.
-Scene/backdrop: perfectly flat solid #ff00ff chroma-key background for local background removal; one uniform color with no shadows, gradients, texture, floor plane, lighting variation, or frames.
-Style/medium: polished rounded 3D children's storybook game art, soft tactile clay-and-felt appearance, friendly and premium, for ages 1–2, matching a cheerful rounded tanuki.
-Composition/framing: exact evenly spaced 3 by 3 grid; each vegetable centered independently in its cell; consistent visual scale and generous padding; full silhouette; no overlaps or cell crossing. Keep the full daikon and carrot inside their cells.
-Lighting/mood: bright soft studio lighting on the vegetables only; joyful, saturated, immediately recognizable.
-Constraints: exactly nine vegetables and no extras; no grid lines; no labels; no text; no numbers; no faces; no cast or contact shadows; no reflections; no watermark; crisp separated edges; do not use #ff00ff in any vegetable.
-Avoid: realistic photography, baskets, plates, cut vegetables, clutter, cropping, inconsistent style.
-```
-
-## 動物プロンプト
-
-```text
-Use case: stylized-concept
-Asset type: production animal character sprite sheet for a toddler iPad web game
-Primary request: Create one strict 3-column by 4-row sprite sheet containing exactly twelve isolated cute animals in this exact cell order.
-Row 1: friendly brown floppy-eared dog; friendly orange tabby cat; round black-and-white giant panda.
-Row 2: golden lion with a soft round mane; small gray elephant with large ears and visible trunk; yellow giraffe with brown spots and full long neck.
-Row 3: round gray-purple hippopotamus; cheerful brown monkey with curled tail; black-and-white zebra with clear stripes.
-Row 4: tan camel with one hump; round pink pig; small blue-and-brown songbird.
+Asset type: production alphabet picture sprite sheet for a toddler iPad web game
+Primary request: Create one strict 3-column by 4-row sprite sheet containing exactly twelve isolated objects in this exact cell order.
+Row 1: a bright orange goldfish seen from the side; a white and blue domed igloo with an arched entrance; a tall glass of orange juice with a straw.
+Row 2: a red diamond kite with a ribbon tail; a round brown twig nest holding three pale blue eggs; a golden crown with red and blue jewels.
+Row 3: a white and brown sitting rabbit with upright ears; a friendly orange tiger cub with black stripes, sitting; a bright red open umbrella with a curved handle.
+Row 4: a wooden violin with a bow; a colourful toy xylophone with rainbow bars and two mallets; a red and white yo-yo with its string.
 Scene/backdrop: perfectly flat solid #00ff00 chroma-key background for local background removal; one uniform color with no shadows, gradients, texture, floor plane, lighting variation, or frames.
-Style/medium: polished rounded 3D children's storybook game characters, soft tactile clay-and-felt appearance, friendly and premium, for ages 1–2, matching a cheerful rounded tanuki protagonist.
-Composition/framing: exact evenly spaced 3 by 4 grid; every animal centered independently in its cell; all facing slightly to the right; full body and feet visible; consistent visual weight and generous padding; no overlap or cell crossing. Fit the giraffe completely inside its cell.
-Lighting/mood: bright soft studio lighting on the animals only; warm, joyful, gentle expressions, immediately recognizable silhouettes.
-Constraints: exactly twelve animals and no extras; no grid lines; no scenery; no props; no collars; no labels; no text; no numbers; no cast or contact shadows; no reflections; no watermark; crisp separated edges; do not use #00ff00 anywhere in the animals.
-Avoid: realistic photography, aggressive teeth, scary expressions, thin fragile limbs, costumes, cropping, inconsistent style.
+Style/medium: polished rounded 3D children's storybook game art, soft tactile clay-and-felt appearance, friendly and premium, for ages 1-3, matching a cheerful rounded tanuki protagonist and an existing set of clay-style fruit, vegetable and animal sprites.
+Composition/framing: exact evenly spaced 3 by 4 grid; every object centered independently in its cell; consistent visual weight and generous padding; full silhouette; no overlap or cell crossing. Keep the umbrella and the kite entirely inside their cells.
+Lighting/mood: bright soft studio lighting on the objects only; warm, joyful, immediately recognizable silhouettes.
+Constraints: exactly twelve objects and no extras; no grid lines; no scenery; no labels; no text; no letters; no numbers; no cast or contact shadows; no reflections; no watermark; crisp separated edges; do not use #00ff00 anywhere in the objects.
+Avoid: realistic photography, scary expressions, thin fragile parts, clutter, cropping, inconsistent style.
 ```
 
-## たぬきプロンプトの要旨
+生成後の手順:
 
-同一の丸く親しみやすいたぬきを3列×2行に配置し、手を振る、走る、手を伸ばす、かごを持つ、押す、跳ぶの6ポーズを生成した。黄色い葉の首飾りを全ポーズで統一し、1〜2歳向けの明るい絵本調、文字・影・余分な物なし、単色マゼンタ背景とした。
+```bash
+.venv/bin/python /absolute/path/to/remove_chroma_key.py \
+  --input tmp/imagegen/abc-sprites-chroma.png \
+  --out assets/abc-sprites-v1.png \
+  --auto-key border --soft-matte \
+  --transparent-threshold 10 --opaque-threshold 55
+.venv/bin/python scripts/make-sprites.py
+npm run build
+```
+
+`tests/game-core.test.mjs` の `letters that already have shipped artwork never depend on the bonus sheet`
+が、既存素材で足りている文字と追加が必要な文字の切り分けを固定している。
+
+## アイコン
+
+`scripts/make-icons.py` がたぬきの「手を振る」ポーズから生成する。
+
+- `public/apple-touch-icon.png` (180×180, 角丸なし・不透明) — iOSはPNGが無いとスクリーンショットをアイコンに使う
+- `public/icon-192.png` / `icon-512.png` — マニフェスト用
+- `public/icon-maskable-512.png` — 安全領域内に収めたマスカブル版
