@@ -2,9 +2,10 @@
  * ぽんぽこ もりの だいぼうけん — application shell.
  *
  * Design rules this file enforces:
- *  - Every interaction is a single tap on a large target. Nothing is dragged.
- *  - Whatever the guidance points at is exactly what must be tapped.
- *  - A wrong tap teaches (the tapped thing says its own name) and never blocks.
+ *  - Two gestures only, on large targets: tap to choose, pull to harvest.
+ *  - Guidance points at the element that must be touched and mimes the gesture
+ *    it needs, both read from that element's own `data-pull`.
+ *  - A wrong choice teaches (it says its own name) and never blocks.
  *  - Everything created inside a scene is owned by one lifecycle id and is torn
  *    down before the next scene exists.
  *  - Browser baseline is Safari 13.4, so no logical assignment, no
@@ -28,6 +29,7 @@ import {
   animalById,
   createSession,
   hintStage,
+  isLetterField,
   literacyCatalog,
   loadSavedState,
   normalizeActivity,
@@ -37,7 +39,11 @@ import {
   backdropMarkup,
   habitatFor,
   PRODUCE_ROTATION,
+  pullSign,
 } from "./scenery.js";
+
+/* Replaced by scripts/build.mjs with a hash of the sources it built from. */
+const BUILD_REVISION = "dev";
 
 const STORAGE_KEYS = {
   settings: "ponpoko-settings-v6",
@@ -148,9 +154,19 @@ function motion(fastValue, slowValue) {
   return state.settings.reduceMotion ? fastValue : slowValue;
 }
 
+/*
+ * Every animation here is a step in a chain: pick, fly, land, ask again. A
+ * `finish` event that never arrives would leave the child looking at a board
+ * that has stopped responding, and a hidden page — an iPad switched to another
+ * app mid-harvest — is exactly where the browser stops delivering them. So the
+ * callback is also armed on a timer, and whichever fires first wins.
+ */
 function animate(node, keyframes, options, onFinish) {
   const lifecycle = state.lifecycle;
+  let settled = false;
   function done() {
+    if (settled) return;
+    settled = true;
     if (lifecycle === state.lifecycle && onFinish) onFinish();
   }
   if (!node || !node.animate || state.settings.reduceMotion) {
@@ -161,6 +177,8 @@ function animate(node, keyframes, options, onFinish) {
     const animation = node.animate(keyframes, options);
     animation.onfinish = done;
     animation.oncancel = function () {};
+    const timing = options || {};
+    schedule(done, (timing.duration || 0) + (timing.delay || 0) + 140);
     return animation;
   } catch (error) {
     schedule(done, 16);
@@ -317,6 +335,9 @@ function fillCollectSlot(index, html) {
 function startQuest(config) {
   state.quest = {
     targetId: config.targetId,
+    /* `free` marks a board with no request: anything the child takes is right,
+     * which is what the letter fields are for. */
+    free: config.free === true,
     wrongTaps: 0,
     lastInteraction: Date.now(),
     stage: 0,
@@ -396,25 +417,34 @@ function clearHintClasses() {
   }
 }
 
+/*
+ * The hand shows the gesture the target actually needs: a tap where a tap
+ * works, and a drag in the pull direction where the thing has to be pulled.
+ * `data-pull` is set by whatever rendered the element, so guidance and input
+ * can never drift apart.
+ */
 function positionHand(target) {
   if (!target || state.settings.reduceMotion) return;
   const rect = target.getBoundingClientRect();
   if (!rect.width) return;
+  const pull = target.getAttribute("data-pull");
   dom.hand.style.left = rect.left + rect.width / 2 + "px";
-  dom.hand.style.top = rect.top + rect.height * 0.62 + "px";
+  dom.hand.style.top = rect.top + rect.height * (pull ? 0.5 : 0.62) + "px";
+  dom.hand.style.setProperty("--pull-dy", (pull === "down" ? 1 : -1) * PULL_DISTANCE + "px");
+  dom.hand.classList.toggle("is-pulling", Boolean(pull));
   dom.hand.classList.add("is-visible");
 }
 
 function hideHand() {
   if (!dom.hand) return;
-  dom.hand.classList.remove("is-visible");
+  dom.hand.classList.remove("is-visible", "is-pulling");
 }
 
 function resolveTap(id, element) {
   const quest = state.quest;
   if (!quest || state.busy) return;
   markInteraction();
-  if (id === quest.targetId) {
+  if (quest.free || id === quest.targetId) {
     state.busy = true;
     clearHintClasses();
     hideHand();
@@ -513,6 +543,101 @@ function flyTo(source, target, className, innerHtml, onFinish) {
   );
 }
 
+/* ------------------------------------------------------------ pull input */
+/*
+ * Things overhead are pulled down, things in the ground are pulled up.
+ *
+ * The sprite only follows the finger in the direction it can actually come
+ * from, so the gesture teaches itself: push the wrong way and nothing moves.
+ * Release short of the threshold and it springs back with a soft sound.
+ *
+ * A plain tap is not a harvest — but three fruitless taps on the same thing
+ * are, because a child who cannot manage the drag must never be stuck.
+ */
+const PULL_DISTANCE = 44;
+const PULL_TAP_RESCUE = 3;
+
+function installPull(button, habitatName, onPull, onTap) {
+  const sign = pullSign(habitatName);
+  const sprite = button.querySelector(".pull-sprite");
+  let pointerId = null;
+  let startX = 0;
+  let startY = 0;
+  let travel = 0;
+  let moved = 0;
+  let taps = 0;
+
+  button.setAttribute("data-pull", sign > 0 ? "down" : "up");
+
+  function offsetSprite(distance) {
+    sprite.style.setProperty("--pull-offset", distance * sign + "px");
+  }
+
+  function release() {
+    button.classList.remove("is-pulling");
+    offsetSprite(0);
+  }
+
+  on(button, "pointerdown", function (event) {
+    if (state.busy || pointerId !== null || button.classList.contains("is-harvested")) return;
+    pointerId = event.pointerId;
+    startX = event.clientX;
+    startY = event.clientY;
+    travel = 0;
+    moved = 0;
+    button.classList.add("is-pulling");
+    if (button.setPointerCapture) button.setPointerCapture(pointerId);
+    markInteraction();
+  });
+
+  on(button, "pointermove", function (event) {
+    if (event.pointerId !== pointerId) return;
+    const dx = event.clientX - startX;
+    const dy = event.clientY - startY;
+    moved = Math.max(moved, Math.sqrt(dx * dx + dy * dy));
+    /* Only motion along the pull direction counts, and it eases towards a cap
+     * so the sprite never flies off its plant. */
+    travel = Math.max(0, dy * sign);
+    offsetSprite(Math.min(travel, PULL_DISTANCE * 1.35));
+  });
+
+  function finish(event) {
+    if (event.pointerId !== pointerId) return;
+    if (button.releasePointerCapture && button.hasPointerCapture
+      && button.hasPointerCapture(pointerId)) {
+      button.releasePointerCapture(pointerId);
+    }
+    pointerId = null;
+    if (travel >= PULL_DISTANCE) {
+      release();
+      taps = 0;
+      onPull();
+      return;
+    }
+    release();
+    if (moved < 12) {
+      taps += 1;
+      onTap(taps >= PULL_TAP_RESCUE);
+      return;
+    }
+    /* A real but too-short pull: nudge, and let the guidance step forward. */
+    audio.play("nudge");
+    wiggle(button);
+    bumpHint();
+  }
+
+  on(button, "pointerup", finish);
+  on(button, "pointercancel", finish);
+}
+
+/* Move the guidance one stage on, without speaking over anything. */
+function bumpHint() {
+  const quest = state.quest;
+  if (!quest) return;
+  quest.wrongTaps += 1;
+  applyHintStage(hintStage(0, quest.wrongTaps), true);
+}
+
 /* -------------------------------------------------------------- the farm */
 function renderFarmRound() {
   const parts = buildStageFrame("stage-farm");
@@ -532,9 +657,9 @@ function renderFarmRound() {
     /* The habitat box is square, so equal percentages give a square target. */
     button.style.width = habitat.scale * 100 + "%";
     button.style.height = habitat.scale * 100 + "%";
-    const sprite = el("i", spriteClass(item.id) + " produce-sprite");
+    const sprite = el("i", spriteClass(item.id) + " produce-sprite pull-sprite");
     const rotation = PRODUCE_ROTATION[item.id] || 0;
-    if (rotation) sprite.style.transform = "rotate(" + rotation + "deg)";
+    sprite.style.setProperty("--pull-rotate", rotation + "deg");
     button.appendChild(sprite);
     box.appendChild(button);
 
@@ -546,13 +671,42 @@ function renderFarmRound() {
     plot.appendChild(box);
     field.appendChild(plot);
 
-    on(button, "click", function () {
-      resolveTap(item.id, button);
-    });
+    installPull(
+      button,
+      item.habitat,
+      function () {
+        resolveTap(item.id, button);
+      },
+      function (rescue) {
+        handleProduceTap(item, button, rescue);
+      },
+    );
   });
   parts.play.appendChild(field);
   buildCollectSlots(parts.collect, state.round.items.length);
   startFarmQuest();
+}
+
+/*
+ * A tap is not the harvest gesture, so it either teaches the name of the wrong
+ * thing or demonstrates the pull on the right one — unless the child has tried
+ * three times, in which case take it and move on.
+ */
+function handleProduceTap(item, button, rescue) {
+  const quest = state.quest;
+  if (!quest || state.busy) return;
+  if (item.id !== quest.targetId) {
+    resolveTap(item.id, button);
+    return;
+  }
+  if (rescue) {
+    resolveTap(item.id, button);
+    return;
+  }
+  audio.play("nudge");
+  wiggle(button);
+  bumpHint();
+  applyHintStage(Math.max(2, state.quest ? state.quest.stage : 2), true);
 }
 
 function startFarmQuest() {
@@ -563,7 +717,7 @@ function startFarmQuest() {
   startQuest({
     targetId: targetId,
     announce: function () {
-      audio.speak(item.label + ACTIVITY_META.farm.askSuffix, "ja-JP");
+      audio.speak(item.label, "ja-JP");
     },
     findTarget: function () {
       return dom.stage.querySelector('.produce[data-item="' + targetId + '"]');
@@ -586,22 +740,23 @@ function startFarmQuest() {
 
 function harvest(button, item) {
   const habitat = habitatFor(item.habitat);
-  const sprite = button.querySelector(".produce-sprite");
+  const sprite = button.querySelector(".pull-sprite");
   const rotation = PRODUCE_ROTATION[item.id] || 0;
   const slotIndex = state.solved;
   const slot = dom.stage.querySelector('[data-collect="' + slotIndex + '"]');
-  audio.play(item.habitat === "soil" ? "pull" : "pick");
+  audio.play(habitat.pull === "up" ? "pull" : "pick");
 
-  /* Buried roots rise out of the ridge first: that lift is the whole point. */
+  /* It comes free in the direction it was pulled, then flies to the basket. */
+  const escape = pullSign(item.habitat) * habitat.rise * 120;
   animate(
     sprite,
     [
       { transform: "translateY(0) rotate(" + rotation + "deg)" },
-      { transform: "translateY(" + -habitat.rise * 100 + "%) rotate(" + rotation + "deg) scale(1.06)" },
+      { transform: "translateY(" + escape + "%) rotate(" + rotation + "deg) scale(1.06)" },
     ],
-    { duration: motion(60, 320), easing: "cubic-bezier(.2,.9,.3,1.2)", fill: "forwards" },
+    { duration: motion(60, 300), easing: "cubic-bezier(.2,.9,.3,1.2)", fill: "forwards" },
     function () {
-      burst(button, item.habitat === "soil" ? "#a9764e" : "#68b665", 12);
+      burst(button, habitat.pull === "up" ? "#a9764e" : "#68b665", 12);
       button.classList.add("is-harvested");
       flyTo(button, slot, "fly-sprite", spriteMarkup(item.id), function () {
         fillCollectSlot(slotIndex, spriteMarkup(item.id, "collected"));
@@ -706,6 +861,129 @@ function revealAnimal(button, animal, card) {
   });
 }
 
+/* --------------------------------------------------------- letter fields */
+/*
+ * Letters growing in a field. There is no request and no wrong answer: the
+ * child pulls whatever they like, hears its sound, and gets the word behind it.
+ * The reward for exploring is the whole lesson.
+ */
+function renderLetterFieldRound() {
+  const parts = buildStageFrame("stage-field stage-" + state.activity);
+  const field = el("div", "farm-field");
+
+  state.round.items.forEach(function (letter) {
+    const habitat = habitatFor(letter.habitat);
+    const plot = el("div", "farm-plot habitat-" + letter.habitat);
+    const box = el("div", "habitat-box");
+    box.innerHTML = habitat.back;
+
+    const button = el("button", "produce letter-crop");
+    button.type = "button";
+    button.setAttribute("data-item", letter.id);
+    button.setAttribute("aria-label", letter.label || letter.glyph);
+    button.style.left = habitat.anchorX + "%";
+    button.style.top = habitat.anchorY + "%";
+    button.style.width = habitat.scale * 100 + "%";
+    button.style.height = habitat.scale * 100 + "%";
+    button.innerHTML = '<span class="pull-sprite letter-crop-face">'
+      + '<span class="letter-crop-glyph">' + letter.glyph
+      + (letter.secondary ? "<small>" + letter.secondary + "</small>" : "")
+      + "</span></span>";
+
+    box.appendChild(button);
+    if (habitat.front) {
+      const front = el("div", "habitat-front-layer");
+      front.innerHTML = habitat.front;
+      box.appendChild(front);
+    }
+    plot.appendChild(box);
+    field.appendChild(plot);
+
+    installPull(
+      button,
+      letter.habitat,
+      function () {
+        resolveTap(letter.id, button);
+      },
+      function (rescue) {
+        if (rescue) {
+          resolveTap(letter.id, button);
+          return;
+        }
+        /* Even a tap that does not harvest still says the letter. */
+        audio.play("tap");
+        audio.speak(letter.speak, letter.lang);
+        wiggle(button);
+        bumpHint();
+      },
+    );
+  });
+
+  parts.play.appendChild(field);
+  buildCollectSlots(parts.collect, state.round.items.length);
+  startLetterFieldQuest();
+}
+
+function startLetterFieldQuest() {
+  const bubble = dom.stage.querySelector(".ask-bubble-body");
+  bubble.innerHTML = '<span class="ask-basket">' + remainingLetterCount() + "</span>";
+  startQuest({
+    targetId: null,
+    free: true,
+    announce: function () {},
+    findTarget: function () {
+      return dom.stage.querySelector(".letter-crop:not(.is-harvested)");
+    },
+    onCorrect: function (button) {
+      const letter = letterCropById(button.getAttribute("data-item"));
+      if (letter) harvestLetterCrop(button, letter);
+    },
+    onWrong: function () {},
+  });
+}
+
+function remainingLetterCount() {
+  return String(state.round.items.length - state.solved);
+}
+
+function letterCropById(id) {
+  const items = state.round.items;
+  for (let index = 0; index < items.length; index += 1) {
+    if (items[index].id === id) return items[index];
+  }
+  return null;
+}
+
+function harvestLetterCrop(button, letter) {
+  const habitat = habitatFor(letter.habitat);
+  const sprite = button.querySelector(".pull-sprite");
+  const slotIndex = state.solved;
+  const slot = dom.stage.querySelector('[data-collect="' + slotIndex + '"]');
+  const glyphHtml = '<span class="collected-letter">' + letter.glyph
+    + (letter.secondary ? "<small>" + letter.secondary + "</small>" : "") + "</span>";
+
+  audio.play(habitat.pull === "up" ? "pull" : "pick");
+  const escape = pullSign(letter.habitat) * habitat.rise * 120;
+  animate(
+    sprite,
+    [{ transform: "translateY(0)" }, { transform: "translateY(" + escape + "%) scale(1.06)" }],
+    { duration: motion(60, 300), easing: "cubic-bezier(.2,.9,.3,1.2)", fill: "forwards" },
+    function () {
+      burst(button, habitat.pull === "up" ? "#a9764e" : "#68b665", 12);
+      button.classList.add("is-harvested");
+      audio.speak(letter.speak, letter.lang);
+      tanukiReact("jump", 850);
+      flyTo(button, slot, "fly-letter", glyphHtml, function () {
+        fillCollectSlot(slotIndex, glyphHtml);
+        audio.play("land", slotIndex);
+        showWordReward(letter, function () {
+          completeStep();
+        });
+      });
+    },
+  );
+}
+
 /* ------------------------------------------------------------- literacy */
 function renderLiteracyRound() {
   const parts = buildStageFrame("stage-literacy stage-" + state.activity);
@@ -775,7 +1053,7 @@ function startLiteracyQuest() {
 
 function speakLetter(entry) {
   if (state.activity === "hiragana") {
-    audio.speak(entry.speak + ACTIVITY_META.hiragana.askSuffix, "ja-JP");
+    audio.speak(entry.speak, "ja-JP");
   } else {
     audio.speak(entry.speak, "en-US");
   }
@@ -861,6 +1139,7 @@ function completeStep() {
   schedule(function () {
     if (state.activity === "farm") startFarmQuest();
     else if (state.activity === "animal") startAnimalQuest();
+    else if (isLetterField(state.activity)) startLetterFieldQuest();
     else startLiteracyQuest();
   }, pause);
 }
@@ -873,6 +1152,7 @@ function renderRound() {
   updateHud();
   if (state.activity === "farm") renderFarmRound();
   else if (state.activity === "animal") renderAnimalRound();
+  else if (isLetterField(state.activity)) renderLetterFieldRound();
   else renderLiteracyRound();
   bindShellControls();
 }
@@ -920,7 +1200,10 @@ function advanceFromComplete() {
 
 /* Every literacy device walks its own random order of the chart. */
 function curriculumSeedFor(activity) {
-  if (activity !== "hiragana" && activity !== "alphabet") return 0;
+  if (!state.progress.curriculumSeed
+    || !Object.prototype.hasOwnProperty.call(state.progress.curriculumSeed, activity)) {
+    return 0;
+  }
   if (!state.progress.curriculumSeed[activity]) {
     state.progress.curriculumSeed[activity] = Math.floor(Math.random() * 0xfffffff) + 1;
     saveProgress();
@@ -960,7 +1243,7 @@ function finishSession() {
   state.activity = activity;
   state.progress.sessions += 1;
   state.progress.completed[activity] += 1;
-  if (activity === "hiragana" || activity === "alphabet") {
+  if (Object.prototype.hasOwnProperty.call(state.progress.curriculum, activity)) {
     const advanced = advanceCurriculum(
       activity,
       state.progress.curriculum[activity],
@@ -1122,8 +1405,10 @@ function bindPermanentControls() {
     ACTIVITY_ORDER.forEach(function (activity) {
       state.progress.completed[activity] = 0;
     });
-    state.progress.curriculum = { hiragana: 0, alphabet: 0 };
-    state.progress.curriculumSeed = { hiragana: 0, alphabet: 0 };
+    Object.keys(state.progress.curriculum).forEach(function (activity) {
+      state.progress.curriculum[activity] = 0;
+      state.progress.curriculumSeed[activity] = 0;
+    });
     saveProgress();
     dom.sessionCount.textContent = "0回";
     audio.play("next");
@@ -1215,7 +1500,7 @@ function boot() {
   readAssetFlags();
   registerServiceWorker();
   showScreen("home");
-  if (dom.buildStamp) dom.buildStamp.textContent = "v6";
+  if (dom.buildStamp) dom.buildStamp.textContent = BUILD_REVISION;
   window.__ponpokoBooted = true;
   document.documentElement.classList.add("app-ready");
 }
@@ -1224,6 +1509,7 @@ boot();
 
 /* Exposed only so the browser smoke test can drive the app deterministically. */
 window.__ponpoko = {
+  revision: BUILD_REVISION,
   state: state,
   startMode: startMode,
   catalogs: { HIRAGANA: HIRAGANA, ALPHABET: ALPHABET, ANIMALS: ANIMALS, FARM_ITEMS: FARM_ITEMS },

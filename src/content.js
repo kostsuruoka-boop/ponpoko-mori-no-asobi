@@ -6,7 +6,18 @@
  * Sprite ids match the `cell-*` classes in styles.css.
  */
 
-export const ACTIVITY_ORDER = ["farm", "animal", "hiragana", "alphabet"];
+export const ACTIVITY_ORDER = [
+  "farm",
+  "animal",
+  "hiragana",
+  "alphabet",
+  "hiragana-field",
+  "alphabet-field",
+];
+
+/* The two letter-field activities grow letters instead of food. */
+export const LETTER_FIELD_ACTIVITY = { hiragana: "hiragana-field", alphabet: "alphabet-field" };
+export const FIELD_SOURCE_ACTIVITY = { "hiragana-field": "hiragana", "alphabet-field": "alphabet" };
 export const ROUNDS_PER_ACTIVITY = 3;
 
 /* ------------------------------------------------------------------ farm */
@@ -167,6 +178,18 @@ const ALPHABET_WORDS = {
   Z: { word: "Zebra", sprite: "zebra" },
 };
 
+/*
+ * Speech engines announce a lone capital letter as "Capital A". Spelling the
+ * letter name out phonetically is the only reliable way to hear just the
+ * letter, and it survives whatever voice the iPad happens to have installed.
+ */
+const ALPHABET_SOUNDS = {
+  A: "ay", B: "bee", C: "see", D: "dee", E: "ee", F: "eff", G: "gee",
+  H: "aitch", I: "eye", J: "jay", K: "kay", L: "ell", M: "em", N: "en",
+  O: "oh", P: "pee", Q: "cue", R: "ar", S: "ess", T: "tee", U: "you",
+  V: "vee", W: "double you", X: "ex", Y: "why", Z: "zee",
+};
+
 export const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(function (glyph, index) {
   const entry = ALPHABET_WORDS[glyph];
   return {
@@ -174,7 +197,7 @@ export const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(function (gly
     glyph: glyph,
     secondary: glyph.toLowerCase(),
     label: glyph,
-    speak: glyph,
+    speak: ALPHABET_SOUNDS[glyph],
     lang: "en-US",
     column: index % 7,
     row: Math.floor(index / 7),
@@ -192,7 +215,6 @@ export const ACTIVITY_META = {
     icon: "🌱",
     pose: "basket",
     askPrefix: "",
-    askSuffix: "、どーこだ",
     finishKicker: "ぽんぽこ だいしゅうかく！",
     finishTitle: "たくさん とれたね！",
   },
@@ -201,7 +223,6 @@ export const ACTIVITY_META = {
     icon: "🐾",
     pose: "reach",
     askPrefix: "この かげ、だあれ",
-    askSuffix: "",
     finishKicker: "どうぶつ だいしゅうごう！",
     finishTitle: "みんな なかよし！",
   },
@@ -210,7 +231,6 @@ export const ACTIVITY_META = {
     icon: "あ",
     pose: "wave",
     askPrefix: "",
-    askSuffix: "、どーこだ",
     finishKicker: "ひらがな ぽんぽこ！",
     finishTitle: "もじが みつかったね！",
   },
@@ -219,10 +239,35 @@ export const ACTIVITY_META = {
     icon: "A",
     pose: "wave",
     askPrefix: "",
-    askSuffix: "",
     finishKicker: "ABC ぽんぽこ！",
     finishTitle: "ABCを みつけたね！",
   },
+  "hiragana-field": {
+    title: "もじばたけ",
+    icon: "あ",
+    pose: "basket",
+    askPrefix: "",
+    finishKicker: "もじが みのったね！",
+    finishTitle: "たくさん とれたね！",
+  },
+  "alphabet-field": {
+    title: "ABCばたけ",
+    icon: "A",
+    pose: "basket",
+    askPrefix: "",
+    finishKicker: "ABCが みのったね！",
+    finishTitle: "たくさん とれたね！",
+  },
+};
+
+/*
+ * Where a letter grows in the letter fields. Half the board hangs above the
+ * child and is pulled downwards, half is buried and is pulled up, so both
+ * gestures get practised every round.
+ */
+export const LETTER_HABITATS = {
+  above: ["tree", "palm", "trellis"],
+  below: ["soil", "bush", "vine", "ground"],
 };
 
 export const PRAISE = ["やったー", "じょうず", "すごーい", "できた", "ぽんぽこ"];

@@ -71,8 +71,36 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const name of BUNDLE_MODULES) {
     sources.push({ name, source: await readFile(path.join(projectRoot, "src", name), "utf8") });
   }
+
+  /*
+   * One revision identifies this build everywhere: stamped into the bundle,
+   * shown in the parent menu, and used as the cache name. Deriving it from the
+   * inputs rather than the output keeps it available before anything is
+   * written, and lets the browser smoke test refuse to test a stale page.
+   */
+  const digest = createHash("sha256");
+  for (const entry of sources) {
+    digest.update(entry.name);
+    digest.update(entry.source);
+  }
+  for (const name of ["index.html", "styles.css"]) {
+    digest.update(await readFile(path.join(projectRoot, "src", name)));
+  }
+  for (const name of (await readdir(path.join(projectRoot, "assets", "sprites"))).sort()) {
+    digest.update(name);
+    digest.update(await readFile(path.join(projectRoot, "assets", "sprites", name)));
+  }
+  const revision = digest.digest("hex").slice(0, 12);
+
   const bundlePath = path.join(outputDirectory, "app.js");
-  await writeFile(bundlePath, bundle(sources));
+  const bundled = bundle(sources);
+  if (!bundled.includes('const BUILD_REVISION = "dev";')) {
+    throw new Error("app.js is missing the build revision placeholder");
+  }
+  await writeFile(
+    bundlePath,
+    bundled.replace('const BUILD_REVISION = "dev";', `const BUILD_REVISION = "${revision}";`),
+  );
 
   /* A bundle that cannot be parsed must fail the build, not the child's iPad. */
   await run(process.execPath, ["--check", bundlePath]);
@@ -125,23 +153,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   await writeFile(indexPath, indexHtml);
   await writeFile(path.join(outputDirectory, "404.html"), indexHtml);
 
-  /*
-   * Name the cache after the content it holds. Forgetting to bump a version
-   * number by hand is how an installed app ends up permanently serving an old
-   * picture, and nobody can fix that from the outside. The worker is written
-   * last so the hash covers every other file exactly as it shipped.
-   */
-  const digest = createHash("sha256");
-  for (const file of (await readdir(outputDirectory, { recursive: true })).sort()) {
-    if (file === "service-worker.js") continue;
-    const contents = await readFile(path.join(outputDirectory, file)).catch(() => null);
-    if (!contents) continue;
-    digest.update(file);
-    digest.update(contents);
-  }
-  const revision = digest.digest("hex").slice(0, 12);
+  /* The cache is named after the same revision, so changed artwork can never
+   * be served from an old cache and nobody has to remember a version number. */
   workerSource = workerSource.replace('"ponpoko-dev"', `"ponpoko-${revision}"`);
   await writeFile(workerPath, workerSource);
 
-  console.log(`Built ${outputDirectory} (abc sheet: ${hasAbcSheet ? "yes" : "no"})`);
+  console.log(`Built ${outputDirectory} rev ${revision} (abc sheet: ${hasAbcSheet ? "yes" : "no"})`);
 }

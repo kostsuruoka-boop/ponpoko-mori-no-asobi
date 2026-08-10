@@ -2,9 +2,11 @@
  * Browser smoke test.
  *
  * Drives a real Chrome over the DevTools protocol and plays every mode to the
- * end using taps only, then checks the things a unit test cannot see: console
- * errors, layout overflow, guidance that points at the tappable target, and
- * that a wrong tap never blocks progress.
+ * end, using each mode's real gesture — a tap where things are chosen, a drag
+ * where things are pulled off a plant. Then it checks what a unit test cannot
+ * see: console errors, layout overflow, tap target sizes, that guidance points
+ * at the required element and mimes the right gesture, and that a wrong choice
+ * never blocks progress.
  *
  *   npm run build
  *   python3 -m http.server 4173 -d dist &
@@ -15,7 +17,7 @@
  *   node scripts/browser-smoke.mjs [port] [label]
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const port = process.argv[2] || "9250";
 const label = process.argv[3] || "landscape";
@@ -109,7 +111,76 @@ const TAP_SELECTOR = {
   animal: (id) => `.choice-card[data-animal="${id}"]`,
   hiragana: (id) => `.letter-cell[data-letter="${id}"]`,
   alphabet: (id) => `.letter-cell[data-letter="${id}"]`,
+  "hiragana-field": (id) => `.letter-crop[data-item="${id}"]`,
+  "alphabet-field": (id) => `.letter-crop[data-item="${id}"]`,
 };
+
+const ACTIVITIES = ["farm", "animal", "hiragana", "alphabet", "hiragana-field", "alphabet-field"];
+
+/* Modes where taking something means dragging it off its plant. */
+const PULL_ACTIVITIES = ["farm", "hiragana-field", "alphabet-field"];
+
+const CHOICE_SELECTOR = {
+  farm: ".produce",
+  animal: ".choice-card",
+  hiragana: ".letter-cell",
+  alphabet: ".letter-cell",
+  "hiragana-field": ".letter-crop",
+  "alphabet-field": ".letter-crop",
+};
+
+const CHOICE_ATTRIBUTE = {
+  farm: "data-item",
+  animal: "data-animal",
+  hiragana: "data-letter",
+  alphabet: "data-letter",
+  "hiragana-field": "data-item",
+  "alphabet-field": "data-item",
+};
+
+/*
+ * Drag the element in the direction its own `data-pull` says it comes off in.
+ * Reading the direction from the DOM rather than hard-coding it means the test
+ * fails if guidance and geometry ever disagree.
+ */
+async function pull(selector) {
+  const info = await evaluate(`(() => {
+    const node = document.querySelector(${JSON.stringify(selector)});
+    if (!node) return null;
+    const r = node.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, pull: node.getAttribute("data-pull") };
+  })()`);
+  if (!info) throw new Error(`Missing pull target: ${selector}`);
+  if (!info.pull) throw new Error(`${selector} has no pull direction`);
+  const sign = info.pull === "down" ? 1 : -1;
+  const steps = 6;
+  const distance = 64;
+  await command("Input.dispatchMouseEvent", { type: "mousePressed", x: info.x, y: info.y, button: "left", clickCount: 1 });
+  for (let step = 1; step <= steps; step += 1) {
+    await command("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: info.x,
+      y: info.y + (sign * distance * step) / steps,
+      button: "left",
+      buttons: 1,
+    });
+    await wait(16);
+  }
+  await command("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: info.x,
+    y: info.y + sign * distance,
+    button: "left",
+    clickCount: 1,
+  });
+}
+
+/* Take one thing, using whichever gesture that mode actually requires. */
+async function take(activity, id) {
+  const selector = TAP_SELECTOR[activity](id);
+  if (PULL_ACTIVITIES.indexOf(activity) >= 0) await pull(selector);
+  else await tap(selector);
+}
 
 async function currentTarget(stepIndex) {
   const stepCheck = stepIndex === undefined ? "" : ` && window.__ponpoko.state.stepIndex === ${stepIndex}`;
@@ -117,7 +188,13 @@ async function currentTarget(stepIndex) {
     `!!(window.__ponpoko.state.quest) && !window.__ponpoko.state.busy${stepCheck}`,
     `a quest to be ready${stepIndex === undefined ? "" : ` for step ${stepIndex}`}`,
   );
-  return evaluate("window.__ponpoko.state.quest.targetId");
+  /* A free board has no requested target; take whatever is still growing. */
+  return evaluate(`(() => {
+    const quest = window.__ponpoko.state.quest;
+    if (!quest.free) return quest.targetId;
+    const node = quest.findTarget();
+    return node ? node.getAttribute("data-item") : null;
+  })()`);
 }
 
 /*
@@ -143,7 +220,9 @@ async function smallestSide(selector) {
 }
 
 async function checkTapTargets(activity) {
-  const play = await smallestSide(".produce, .choice-card, .letter-cell, .ask-bubble, .next-round-button");
+  const play = await smallestSide(
+    ".produce, .letter-crop, .choice-card, .letter-cell, .ask-bubble, .next-round-button",
+  );
   if (!play.count) throw new Error(`${activity}: no tappable play targets found`);
   if (play.min < PLAY_TARGET_MINIMUM) {
     throw new Error(`${activity}: play target too small (${Math.round(play.min)}px, ${play.name})`);
@@ -168,6 +247,7 @@ async function checkNoOverflow(where) {
 async function checkGuidancePointsAtTarget(activity) {
   const targetId = await currentTarget();
   const selector = TAP_SELECTOR[activity](targetId);
+  const pulls = PULL_ACTIVITIES.indexOf(activity) >= 0;
   await evaluate(`(() => {
     const quest = window.__ponpoko.state.quest;
     quest.lastInteraction = Date.now() - 20000;
@@ -184,7 +264,14 @@ async function checkGuidancePointsAtTarget(activity) {
     return hx >= target.left - 8 && hx <= target.right + 8 && hy >= target.top - 8 && hy <= target.bottom + 30;
   })()`);
   if (!agreement) throw new Error(`${activity}: guidance does not point at the required target`);
-  await tap(selector);
+  /* The hand must mime the gesture the target really needs. */
+  const miming = await evaluate(
+    `document.querySelector("#tap-hand").classList.contains("is-pulling")`,
+  );
+  if (miming !== pulls) {
+    throw new Error(`${activity}: guidance mimes the wrong gesture (pulling=${miming})`);
+  }
+  await take(activity, targetId);
   return targetId;
 }
 
@@ -192,17 +279,9 @@ async function checkGuidancePointsAtTarget(activity) {
 async function checkWrongTapIsForgiving(activity) {
   const targetId = await currentTarget();
   const wrongSelector = await evaluate(`(() => {
-    const all = [...document.querySelectorAll(${JSON.stringify(
-      activity === "farm"
-        ? ".produce"
-        : activity === "animal"
-          ? ".choice-card"
-          : ".letter-cell",
-    )})];
+    const all = [...document.querySelectorAll(${JSON.stringify(CHOICE_SELECTOR[activity])})];
     const target = ${JSON.stringify(targetId)};
-    const attribute = ${JSON.stringify(
-      activity === "farm" ? "data-item" : activity === "animal" ? "data-animal" : "data-letter",
-    )};
+    const attribute = ${JSON.stringify(CHOICE_ATTRIBUTE[activity])};
     const other = all.find((node) => node.getAttribute(attribute) !== target);
     return other ? \`[\${attribute}="\${other.getAttribute(attribute)}"]\` : null;
   })()`);
@@ -218,15 +297,18 @@ async function checkWrongTapIsForgiving(activity) {
 }
 
 async function playRound(activity, roundIndex) {
-  const total = await evaluate("window.__ponpoko.state.round.activity === 'farm' ? 6 : window.__ponpoko.state.round.activity === 'animal' ? 4 : 5");
+  const total = await evaluate("window.__ponpoko.state.round.items ? window.__ponpoko.state.round.items.length : (window.__ponpoko.state.round.steps ? window.__ponpoko.state.round.steps.length : window.__ponpoko.state.round.targets.length)");
+  const free = await evaluate("!!(window.__ponpoko.state.quest && window.__ponpoko.state.quest.free)");
   for (let step = 0; step < total; step += 1) {
     await currentTarget(step);
-    if (roundIndex === 0 && step === 0) {
+    /* A free board has nothing to get wrong, so those checks only run where a
+     * particular thing is being asked for. */
+    if (roundIndex === 0 && step === 0 && !free) {
       await checkWrongTapIsForgiving(activity);
       await checkGuidancePointsAtTarget(activity);
     } else {
       const targetId = await currentTarget(step);
-      await tap(TAP_SELECTOR[activity](targetId));
+      await take(activity, targetId);
     }
     await wait(120);
   }
@@ -283,17 +365,35 @@ await evaluate(`(async () => {
 await wait(1600);
 
 await waitUntil("window.__ponpokoBooted === true", "the app to boot");
+
+/*
+ * Refuse to test yesterday's build. A service worker that keeps serving an old
+ * bundle has already cost this project two rounds of chasing a bug that was
+ * fixed, so the revision the page is running is compared with the one on disk.
+ */
+const expectedRevision = (await readFile("dist/app.js", "utf8"))
+  .match(/const BUILD_REVISION = "([a-f0-9]+)"/)[1];
+let loadedRevision = await evaluate("window.__ponpoko.revision");
+if (loadedRevision !== expectedRevision) {
+  await evaluate("location.reload(true)");
+  await wait(1500);
+  await waitUntil("window.__ponpokoBooted === true", "the app to boot after a forced reload");
+  loadedRevision = await evaluate("window.__ponpoko.revision");
+}
+if (loadedRevision !== expectedRevision) {
+  throw new Error(`Stale build in the browser: ${loadedRevision} but dist is ${expectedRevision}`);
+}
 if (await evaluate('!document.querySelector("#boot-error").hidden')) {
   throw new Error("Boot diagnostics panel appeared");
 }
-if ((await evaluate('document.querySelectorAll("[data-mode]").length')) !== 4) {
-  throw new Error("Home screen does not offer four modes");
+if ((await evaluate('document.querySelectorAll("[data-mode]").length')) !== ACTIVITIES.length) {
+  throw new Error(`Home screen does not offer ${ACTIVITIES.length} modes`);
 }
 await checkNoOverflow("home");
 await shot("home");
 
 const sizes = {};
-for (const activity of ["farm", "animal", "hiragana", "alphabet"]) {
+for (const activity of ACTIVITIES) {
   sizes[activity] = Math.round(await playActivity(activity));
 }
 
@@ -301,7 +401,7 @@ for (const activity of ["farm", "animal", "hiragana", "alphabet"]) {
 await tap('[data-mode="farm"]');
 await waitUntil("!!window.__ponpoko.state.quest", "farm restart");
 const stale = await currentTarget();
-await tap(TAP_SELECTOR.farm(stale));
+await take("farm", stale);
 await tap("#game-home-button");
 await tap('[data-mode="animal"]');
 await waitUntil("!!window.__ponpoko.state.quest", "animal after interrupt");
@@ -318,7 +418,7 @@ await tap('[data-gate="5"]');
 if ((await evaluate('document.querySelector("#parent-settings").hidden')) !== false) {
   throw new Error("Parent settings did not unlock");
 }
-if ((await evaluate('document.querySelector("#session-count").textContent')) !== "4回") {
+if ((await evaluate('document.querySelector("#session-count").textContent')) !== "6回") {
   throw new Error("Completed sessions were not persisted");
 }
 await tap("#overlay-close");
@@ -337,13 +437,13 @@ await waitUntil("window.__ponpokoBooted === true", "the app to reboot with reduc
 if (!(await evaluate("window.__ponpoko.state.settings.reduceMotion"))) {
   throw new Error("Reduced motion setting did not load");
 }
-for (const activity of ["farm", "animal", "hiragana", "alphabet"]) {
+for (const activity of ACTIVITIES) {
   await tap(`[data-mode="${activity}"]`);
   await waitUntil("!!window.__ponpoko.state.quest", `${activity} quest with reduced motion`);
-  const total = activity === "farm" ? 6 : activity === "animal" ? 4 : 5;
+  const total = await evaluate("window.__ponpoko.state.round.items ? window.__ponpoko.state.round.items.length : (window.__ponpoko.state.round.steps ? window.__ponpoko.state.round.steps.length : window.__ponpoko.state.round.targets.length)");
   for (let step = 0; step < total; step += 1) {
     const targetId = await currentTarget(step);
-    await tap(TAP_SELECTOR[activity](targetId));
+    await take(activity, targetId);
   }
   await waitUntil(
     '!document.querySelector("#round-complete").hidden',

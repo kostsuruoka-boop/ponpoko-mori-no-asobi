@@ -12,6 +12,7 @@ import {
   FARM_ITEMS,
   FRUITS,
   HIRAGANA,
+  LETTER_HABITATS,
   ROUNDS_PER_ACTIVITY,
   VEGETABLES,
 } from "../src/content.js";
@@ -19,6 +20,7 @@ import {
   ANIMAL_TARGETS_PER_ROUND,
   FARM_TARGETS_PER_ROUND,
   HINT_STAGE_DELAYS,
+  LETTER_FIELD_TARGETS_PER_ROUND,
   LITERACY_TARGETS_PER_ROUND,
   LITERACY_TARGETS_PER_SESSION,
   advanceCurriculum,
@@ -26,10 +28,12 @@ import {
   animalById,
   createAnimalSession,
   createFarmSession,
+  createLetterFieldSession,
   createLiteracySession,
   createSession,
   hintStage,
   literacyCatalog,
+  isLetterField,
   literacyOrder,
   loadSavedState,
   nextSeed,
@@ -38,7 +42,7 @@ import {
   shuffle,
   targetsPerRound,
 } from "../src/game-core.js";
-import { HABITATS, habitatFor } from "../src/scenery.js";
+import { HABITATS, habitatFor, pullSign } from "../src/scenery.js";
 
 /* Distinct generators so a bug that ignores `random` cannot pass by accident. */
 const SEEDS = [1, 7, 99, 12345, 20260809, 777777];
@@ -80,6 +84,24 @@ test("only buried produce is covered by a front layer of soil", () => {
   assert.ok(habitatFor("soil").front.includes("<svg"));
   assert.ok(habitatFor("soil").rise > habitatFor("tree").rise);
   assert.equal(habitatFor("tree").front, "");
+});
+
+test("the alphabet is spoken as letter names, never as a capital letter", () => {
+  ALPHABET.forEach((item) => {
+    assert.ok(item.speak, `${item.glyph} needs a spoken name`);
+    assert.notEqual(item.speak, item.glyph, `${item.glyph} would be read as "capital"`);
+    assert.equal(item.speak, item.speak.toLowerCase());
+  });
+  assert.equal(ALPHABET[0].speak, "ay");
+  assert.equal(ALPHABET.at(-1).speak, "zee");
+});
+
+test("nothing asks どーこだ any more", () => {
+  Object.keys(ACTIVITY_META).forEach((activity) => {
+    const meta = ACTIVITY_META[activity];
+    assert.equal(meta.askSuffix, undefined);
+    assert.ok((meta.askPrefix || "").indexOf("どーこだ") < 0);
+  });
 });
 
 test("every animal has a label and only iconic ones carry a cry", () => {
@@ -198,6 +220,64 @@ test("animal groupings and silhouette order differ between sessions", () => {
   });
   assert.ok(groupings.size > 1, "which animals share a round must vary");
   assert.ok(orders.size > 1, "the silhouette order must vary");
+});
+
+/* ---------------------------------------------------------- pull gestures */
+
+test("things overhead are pulled down and things in the ground are pulled up", () => {
+  LETTER_HABITATS.above.forEach((habitat) => {
+    assert.equal(habitatFor(habitat).pull, "down", `${habitat} hangs overhead`);
+    assert.equal(pullSign(habitat), 1);
+  });
+  LETTER_HABITATS.below.forEach((habitat) => {
+    assert.equal(habitatFor(habitat).pull, "up", `${habitat} is at ground level`);
+    assert.equal(pullSign(habitat), -1);
+  });
+  Object.keys(HABITATS).forEach((habitat) => {
+    assert.ok(["up", "down"].includes(HABITATS[habitat].pull), `${habitat} needs a pull direction`);
+  });
+  /* Every growing place in the letter fields, and no duplicates between them. */
+  const all = LETTER_HABITATS.above.concat(LETTER_HABITATS.below);
+  assert.equal(new Set(all).size, all.length);
+  all.forEach((habitat) => assert.ok(HABITATS[habitat]));
+});
+
+/* ------------------------------------------------------------ letter field */
+
+test("a letter field board offers both gestures every round", () => {
+  ["hiragana-field", "alphabet-field"].forEach((activity) => {
+    assert.ok(isLetterField(activity));
+    SEEDS.forEach((seed) => {
+      const rounds = createLetterFieldSession(activity, 0, seed);
+      assert.equal(rounds.length, ROUNDS_PER_ACTIVITY);
+      const asked = [];
+      rounds.forEach((round) => {
+        assert.equal(round.activity, activity);
+        assert.equal(round.items.length, LETTER_FIELD_TARGETS_PER_ROUND);
+        assert.deepEqual(round.items.map((item) => item.slot), [0, 1, 2, 3, 4, 5]);
+        const up = round.items.filter((item) => pullSign(item.habitat) < 0);
+        const down = round.items.filter((item) => pullSign(item.habitat) > 0);
+        assert.equal(up.length, 3, "half the board must be pulled up");
+        assert.equal(down.length, 3, "half the board must be pulled down");
+        round.items.forEach((item) => {
+          assert.ok(item.glyph, "a letter crop needs a glyph");
+          assert.ok(item.speak, "a letter crop needs a sound");
+          assert.ok(HABITATS[item.habitat], `unknown habitat ${item.habitat}`);
+        });
+        asked.push(...round.items.map((item) => item.glyph));
+      });
+      assert.equal(new Set(asked).size, asked.length, "no letter twice in a session");
+    });
+  });
+});
+
+test("the letter field keeps its own place in the chart", () => {
+  const field = advanceCurriculum("hiragana-field", 0, 500);
+  assert.equal(field.index, LETTER_FIELD_TARGETS_PER_ROUND * ROUNDS_PER_ACTIVITY);
+  const chart = advanceCurriculum("hiragana", 0, 500);
+  assert.equal(chart.index, LITERACY_TARGETS_PER_SESSION);
+  assert.notEqual(field.index, chart.index, "the two games must not share a position");
+  assert.equal(literacyCatalog("alphabet-field"), literacyCatalog("alphabet"));
 });
 
 /* -------------------------------------------------------------- literacy */
@@ -360,7 +440,9 @@ test("guidance escalates on idling and reaches the pointing stage on wrong taps"
 /* ----------------------------------------------------------- progression */
 
 test("the session factory supports all four modes and rejects unknown ones", () => {
-  assert.deepEqual(ACTIVITY_ORDER, ["farm", "animal", "hiragana", "alphabet"]);
+  assert.deepEqual(ACTIVITY_ORDER, [
+    "farm", "animal", "hiragana", "alphabet", "hiragana-field", "alphabet-field",
+  ]);
   ACTIVITY_ORDER.forEach((activity) => {
     const session = createSession(activity, {
       random: seededRandom(11),
@@ -375,6 +457,7 @@ test("the session factory supports all four modes and rejects unknown ones", () 
   assert.equal(targetsPerRound("farm"), 6);
   assert.equal(targetsPerRound("animal"), 4);
   assert.equal(targetsPerRound("hiragana"), 5);
+  assert.equal(targetsPerRound("alphabet-field"), 6);
   assert.throws(() => createSession("unknown"), /Unknown activity/);
   assert.throws(() => literacyCatalog("farm"), /Unknown literacy activity/);
 });
@@ -423,6 +506,8 @@ test("saved state is sanitised and migrates the old sound preference", () => {
   assert.equal(loaded.progress.curriculum.alphabet, 2);
   assert.equal(loaded.progress.curriculumSeed.hiragana, 77);
   assert.equal(loaded.progress.curriculumSeed.alphabet, 0);
+  assert.equal(loaded.progress.curriculum["hiragana-field"], 0);
+  assert.equal(loaded.progress.curriculumSeed["alphabet-field"], 0);
 });
 
 test("unreadable storage still produces a playable default state", () => {

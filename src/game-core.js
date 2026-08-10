@@ -11,13 +11,16 @@ import {
   ANIMAL_CHOICE_PROGRESSION,
   FARM_HABITATS,
   FARM_ITEMS,
+  FIELD_SOURCE_ACTIVITY,
   HIRAGANA,
+  LETTER_HABITATS,
   ROUNDS_PER_ACTIVITY,
 } from "./content.js";
 
 export const FARM_TARGETS_PER_ROUND = 6;
 export const ANIMAL_TARGETS_PER_ROUND = 4;
 export const LITERACY_TARGETS_PER_ROUND = 5;
+export const LETTER_FIELD_TARGETS_PER_ROUND = 6;
 export const LITERACY_TARGETS_PER_SESSION = LITERACY_TARGETS_PER_ROUND * ROUNDS_PER_ACTIVITY;
 
 /* Idle milliseconds before each successive hint stage. A wrong tap counts as
@@ -209,9 +212,14 @@ export function animalById(id) {
 
 /* -------------------------------------------------------------- literacy */
 export function literacyCatalog(activity) {
-  if (activity === "hiragana") return HIRAGANA;
-  if (activity === "alphabet") return ALPHABET;
+  const resolved = FIELD_SOURCE_ACTIVITY[activity] || activity;
+  if (resolved === "hiragana") return HIRAGANA;
+  if (resolved === "alphabet") return ALPHABET;
   throw new Error("Unknown literacy activity: " + activity);
+}
+
+export function isLetterField(activity) {
+  return Object.prototype.hasOwnProperty.call(FIELD_SOURCE_ACTIVITY, activity);
 }
 
 /*
@@ -250,12 +258,61 @@ export function advanceCurriculum(activity, currentIndex, seed) {
   } catch (error) {
     return { index: nonNegativeInteger(currentIndex), seed: nonNegativeInteger(seed) };
   }
+  const perSession = isLetterField(activity)
+    ? LETTER_FIELD_TARGETS_PER_ROUND * ROUNDS_PER_ACTIVITY
+    : LITERACY_TARGETS_PER_SESSION;
   const index = modulo(nonNegativeInteger(currentIndex), catalog.length);
-  const raw = index + LITERACY_TARGETS_PER_SESSION;
+  const raw = index + perSession;
   return {
     index: modulo(raw, catalog.length),
     seed: raw >= catalog.length ? nextSeed(seed) : nonNegativeInteger(seed),
   };
+}
+
+/* --------------------------------------------------------- letter fields */
+/*
+ * Letters growing in a field. There is no request to follow: the child pulls
+ * whichever letter they like and hears its sound, so the only rule is that
+ * every board offers both gestures — half the letters hang overhead and are
+ * pulled down, half are buried and are pulled up.
+ */
+export function createLetterFieldSession(activity, curriculumIndex, seed) {
+  const order = literacyOrder(activity, seed);
+  const random = seededRandom(nextSeed(seed));
+  const start = nonNegativeInteger(curriculumIndex);
+  const half = LETTER_FIELD_TARGETS_PER_ROUND / 2;
+  const rounds = [];
+  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
+    const habitats = shuffle(
+      Array.from({ length: half }, function (unused, index) {
+        return LETTER_HABITATS.above[index % LETTER_HABITATS.above.length];
+      }).concat(
+        Array.from({ length: half }, function (unused, index) {
+          return LETTER_HABITATS.below[index % LETTER_HABITATS.below.length];
+        }),
+      ),
+      random,
+    );
+    const items = [];
+    for (let index = 0; index < LETTER_FIELD_TARGETS_PER_ROUND; index += 1) {
+      const position = start + roundIndex * LETTER_FIELD_TARGETS_PER_ROUND + index;
+      const letter = order[modulo(position, order.length)];
+      items.push({
+        id: letter.id,
+        glyph: letter.glyph,
+        secondary: letter.secondary,
+        speak: letter.speak,
+        lang: letter.lang,
+        word: letter.word,
+        sprite: letter.sprite,
+        bonusSprite: letter.bonusSprite,
+        habitat: habitats[index],
+        slot: index,
+      });
+    }
+    rounds.push({ activity: activity, roundIndex: roundIndex, items: items });
+  }
+  return rounds;
 }
 
 /* ------------------------------------------------------------ progression */
@@ -274,12 +331,19 @@ export function createSession(activity, options) {
       rounds: createLiteracySession(activity, settings.curriculumIndex, settings.curriculumSeed),
     };
   }
+  if (isLetterField(activity)) {
+    return {
+      activity: activity,
+      rounds: createLetterFieldSession(activity, settings.curriculumIndex, settings.curriculumSeed),
+    };
+  }
   throw new Error("Unknown activity: " + activity);
 }
 
 export function targetsPerRound(activity) {
   if (activity === "farm") return FARM_TARGETS_PER_ROUND;
   if (activity === "animal") return ANIMAL_TARGETS_PER_ROUND;
+  if (isLetterField(activity)) return LETTER_FIELD_TARGETS_PER_ROUND;
   return LITERACY_TARGETS_PER_ROUND;
 }
 
@@ -319,6 +383,27 @@ export function hintStage(idleMilliseconds, wrongTaps) {
 }
 
 /* --------------------------------------------------------------- storage */
+export const LETTER_ACTIVITIES = ["hiragana", "alphabet", "hiragana-field", "alphabet-field"];
+
+function sanitiseCurriculum(saved) {
+  const result = {};
+  LETTER_ACTIVITIES.forEach(function (activity) {
+    result[activity] = modulo(
+      nonNegativeInteger(saved ? saved[activity] : 0),
+      literacyCatalog(activity).length,
+    );
+  });
+  return result;
+}
+
+function sanitiseSeeds(saved) {
+  const result = {};
+  LETTER_ACTIVITIES.forEach(function (activity) {
+    result[activity] = nonNegativeInteger(saved ? saved[activity] : 0);
+  });
+  return result;
+}
+
 export function loadSavedState(settingsValue, progressValue, reduceMotionDefault) {
   const settings = safeParse(settingsValue);
   const progress = safeParse(progressValue);
@@ -343,16 +428,11 @@ export function loadSavedState(settingsValue, progressValue, reduceMotionDefault
     progress: {
       sessions: nonNegativeInteger(progress.sessions),
       completed: completed,
-      curriculum: {
-        hiragana: modulo(nonNegativeInteger(curriculum.hiragana), HIRAGANA.length),
-        alphabet: modulo(nonNegativeInteger(curriculum.alphabet), ALPHABET.length),
-      },
+      /* The chart game and the letter field walk the alphabet independently. */
+      curriculum: sanitiseCurriculum(curriculum),
       /* Zero means "never seeded"; the app picks a random seed on first play so
        * two devices do not walk the alphabet in the same order. */
-      curriculumSeed: {
-        hiragana: nonNegativeInteger(seeds.hiragana),
-        alphabet: nonNegativeInteger(seeds.alphabet),
-      },
+      curriculumSeed: sanitiseSeeds(seeds),
     },
   };
 }
