@@ -10,6 +10,8 @@
  * is a front layer that hides the lower third of the root.
  */
 
+import { HABITAT_PULL } from "./content.js";
+
 const PALETTE = {
   shade: "rgba(46,74,42,.16)",
   trunk: "#9a6f4b",
@@ -150,17 +152,17 @@ const SOIL_FRONT = svg(
  * anchorX / anchorY are percentages of the habitat box.
  * scale is the produce width as a fraction of the habitat width.
  * rise is how far (in produce heights) a harvest animation lifts before flying.
- * pull is the direction the child drags to take it: things overhead come down,
- * things in the ground come up.
+ * The pull direction is not repeated here: it comes from HABITAT_PULL, so the
+ * gesture, the guidance and the board layout can never disagree.
  */
 export const HABITATS = {
-  tree: { back: TREE_BACK, front: "", anchorX: 50, anchorY: 43, scale: 0.4, rise: 0.08, pull: "down" },
-  palm: { back: PALM_BACK, front: "", anchorX: 46, anchorY: 51, scale: 0.4, rise: 0.08, pull: "down" },
-  trellis: { back: TRELLIS_BACK, front: "", anchorX: 50, anchorY: 60, scale: 0.38, rise: 0.08, pull: "down" },
-  bush: { back: BUSH_BACK, front: BUSH_FRONT, anchorX: 50, anchorY: 58, scale: 0.4, rise: 0.16, pull: "up" },
-  vine: { back: VINE_BACK, front: VINE_FRONT, anchorX: 50, anchorY: 70, scale: 0.46, rise: 0.14, pull: "up" },
-  ground: { back: GROUND_BACK, front: GROUND_FRONT, anchorX: 50, anchorY: 68, scale: 0.44, rise: 0.14, pull: "up" },
-  soil: { back: SOIL_BACK, front: SOIL_FRONT, anchorX: 50, anchorY: 70, scale: 0.46, rise: 0.34, pull: "up" },
+  tree: { back: TREE_BACK, front: "", anchorX: 50, anchorY: 43, scale: 0.4, rise: 0.08 },
+  palm: { back: PALM_BACK, front: "", anchorX: 46, anchorY: 51, scale: 0.4, rise: 0.08 },
+  trellis: { back: TRELLIS_BACK, front: "", anchorX: 50, anchorY: 60, scale: 0.38, rise: 0.08 },
+  bush: { back: BUSH_BACK, front: BUSH_FRONT, anchorX: 50, anchorY: 58, scale: 0.4, rise: 0.16 },
+  vine: { back: VINE_BACK, front: VINE_FRONT, anchorX: 50, anchorY: 70, scale: 0.46, rise: 0.14 },
+  ground: { back: GROUND_BACK, front: GROUND_FRONT, anchorX: 50, anchorY: 68, scale: 0.44, rise: 0.14 },
+  soil: { back: SOIL_BACK, front: SOIL_FRONT, anchorX: 50, anchorY: 70, scale: 0.46, rise: 0.34 },
 };
 
 /*
@@ -179,9 +181,13 @@ export function habitatFor(name) {
   return HABITATS[name] || HABITATS.ground;
 }
 
+export function pullDirection(name) {
+  return HABITAT_PULL[name] || "up";
+}
+
 /* +1 pulls the sprite downward on screen, -1 upward. */
 export function pullSign(name) {
-  return habitatFor(name).pull === "down" ? 1 : -1;
+  return pullDirection(name) === "down" ? 1 : -1;
 }
 
 /*

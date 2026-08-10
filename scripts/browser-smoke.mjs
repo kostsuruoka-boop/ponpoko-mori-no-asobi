@@ -219,6 +219,35 @@ async function smallestSide(selector) {
   })()`);
 }
 
+/*
+ * Every pullable crop must carry a visible arrow, and it must point the way the
+ * input actually reads. This is the child's only standing instruction.
+ */
+async function checkPullCues(activity) {
+  if (PULL_ACTIVITIES.indexOf(activity) < 0) return;
+  const report = await evaluate(`(() => {
+    const crops = [...document.querySelectorAll("[data-pull]")];
+    if (!crops.length) return { missing: "no crops" };
+    for (const crop of crops) {
+      const cue = crop.querySelector(".pull-cue");
+      if (!cue) return { missing: crop.getAttribute("data-item") };
+      const style = getComputedStyle(cue);
+      if (style.display === "none" || style.visibility === "hidden") {
+        return { hidden: crop.getAttribute("data-item") };
+      }
+      const wantsDown = crop.getAttribute("data-pull") === "down";
+      const box = crop.getBoundingClientRect();
+      const mark = cue.getBoundingClientRect();
+      const below = mark.top + mark.height / 2 > box.top + box.height / 2;
+      if (below !== wantsDown) return { backwards: crop.getAttribute("data-item") };
+    }
+    return { ok: crops.length };
+  })()`);
+  if (!report.ok) {
+    throw new Error(`${activity}: direction cue problem ${JSON.stringify(report)}`);
+  }
+}
+
 async function checkTapTargets(activity) {
   const play = await smallestSide(
     ".produce, .letter-crop, .choice-card, .letter-cell, .ask-bubble, .next-round-button",
@@ -325,6 +354,7 @@ async function playActivity(activity) {
   await waitUntil("!!window.__ponpoko.state.quest", `${activity} first quest`);
   await wait(400);
   const smallest = await checkTapTargets(activity);
+  await checkPullCues(activity);
   await checkNoOverflow(activity);
   await shot(activity);
 

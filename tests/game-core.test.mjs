@@ -11,8 +11,10 @@ import {
   FARM_HABITATS,
   FARM_ITEMS,
   FRUITS,
+  HABITAT_PULL,
   HIRAGANA,
   LETTER_HABITATS,
+  isOverhead,
   ROUNDS_PER_ACTIVITY,
   VEGETABLES,
 } from "../src/content.js";
@@ -42,7 +44,7 @@ import {
   shuffle,
   targetsPerRound,
 } from "../src/game-core.js";
-import { HABITATS, habitatFor, pullSign } from "../src/scenery.js";
+import { HABITATS, habitatFor, pullDirection, pullSign } from "../src/scenery.js";
 
 /* Distinct generators so a bug that ignores `random` cannot pass by accident. */
 const SEEDS = [1, 7, 99, 12345, 20260809, 777777];
@@ -153,6 +155,34 @@ test("a farm session always features all eighteen foods exactly once", () => {
   });
 });
 
+test("what you pick stands behind what you pull out of the ground", () => {
+  /* Swept, because a rare deal that put a tree in the front row would look
+   * wrong on screen without failing anything else. */
+  for (let seed = 1; seed <= 600; seed += 1) {
+    createFarmSession(seededRandom(seed)).forEach((round, roundIndex) => {
+      let seenGrounded = false;
+      round.items.forEach((item) => {
+        if (isOverhead(item.habitat)) {
+          assert.ok(!seenGrounded, `seed ${seed} round ${roundIndex}: ${item.id} is out of order`);
+        } else {
+          seenGrounded = true;
+        }
+      });
+      const overhead = round.items.filter((item) => isOverhead(item.habitat)).length;
+      assert.ok(overhead >= 2 && overhead <= 3, `seed ${seed}: ${overhead} in the back row`);
+    });
+  }
+});
+
+test("a letter field is laid out the same way", () => {
+  SEEDS.forEach((seed) => {
+    createLetterFieldSession("hiragana-field", 0, seed).forEach((round) => {
+      const bands = round.items.map((item) => (isOverhead(item.habitat) ? "up" : "down"));
+      assert.deepEqual(bands, ["up", "up", "up", "down", "down", "down"]);
+    });
+  });
+});
+
 test("a randomly dealt farm board still mixes several growing places", () => {
   /* Swept rather than sampled: this invariant is the whole reason the deal is
    * not a plain shuffle, and a rare bad hand would otherwise ship. */
@@ -224,22 +254,18 @@ test("animal groupings and silhouette order differ between sessions", () => {
 
 /* ---------------------------------------------------------- pull gestures */
 
-test("things overhead are pulled down and things in the ground are pulled up", () => {
-  LETTER_HABITATS.above.forEach((habitat) => {
-    assert.equal(habitatFor(habitat).pull, "down", `${habitat} hangs overhead`);
-    assert.equal(pullSign(habitat), 1);
-  });
-  LETTER_HABITATS.below.forEach((habitat) => {
-    assert.equal(habitatFor(habitat).pull, "up", `${habitat} is at ground level`);
-    assert.equal(pullSign(habitat), -1);
-  });
+test("one declaration decides the gesture, the guidance and the layout", () => {
   Object.keys(HABITATS).forEach((habitat) => {
-    assert.ok(["up", "down"].includes(HABITATS[habitat].pull), `${habitat} needs a pull direction`);
+    assert.ok(["up", "down"].includes(HABITAT_PULL[habitat]), `${habitat} needs a pull direction`);
+    /* The renderer, the input and the layout must all read the same value. */
+    assert.equal(pullDirection(habitat), HABITAT_PULL[habitat]);
+    assert.equal(pullSign(habitat), HABITAT_PULL[habitat] === "down" ? 1 : -1);
+    assert.equal(isOverhead(habitat), HABITAT_PULL[habitat] === "down");
   });
-  /* Every growing place in the letter fields, and no duplicates between them. */
+  assert.deepEqual(LETTER_HABITATS.above, ["tree", "trellis", "palm"]);
+  assert.deepEqual(LETTER_HABITATS.below, ["soil", "bush", "vine", "ground"]);
   const all = LETTER_HABITATS.above.concat(LETTER_HABITATS.below);
-  assert.equal(new Set(all).size, all.length);
-  all.forEach((habitat) => assert.ok(HABITATS[habitat]));
+  assert.equal(new Set(all).size, Object.keys(HABITATS).length);
 });
 
 /* ------------------------------------------------------------ letter field */
@@ -259,6 +285,7 @@ test("a letter field board offers both gestures every round", () => {
         const down = round.items.filter((item) => pullSign(item.habitat) > 0);
         assert.equal(up.length, 3, "half the board must be pulled up");
         assert.equal(down.length, 3, "half the board must be pulled down");
+        assert.deepEqual(round.items.map((item) => item.slot), [0, 1, 2, 3, 4, 5]);
         round.items.forEach((item) => {
           assert.ok(item.glyph, "a letter crop needs a glyph");
           assert.ok(item.speak, "a letter crop needs a sound");

@@ -57,6 +57,27 @@ export const FARM_ITEMS = FRUITS.concat(VEGETABLES);
  * six identical trees. */
 export const FARM_HABITATS = ["tree", "soil", "bush", "trellis", "vine", "ground", "palm"];
 
+/*
+ * Whether a growing place is overhead or at ground level. One declaration
+ * decides three things that must never disagree: which direction the child
+ * pulls, which direction the guidance hand mimes, and which row of the board
+ * the plant is laid out in. Things you reach up and pick sit in the back row;
+ * things you pull out of the ground sit in the front row.
+ */
+export const HABITAT_PULL = {
+  tree: "down",
+  palm: "down",
+  trellis: "down",
+  bush: "up",
+  vine: "up",
+  ground: "up",
+  soil: "up",
+};
+
+export function isOverhead(habitat) {
+  return HABITAT_PULL[habitat] === "down";
+}
+
 /* --------------------------------------------------------------- animals */
 /* `cry` is optional: only animals with an iconic Japanese onomatopoeia have one. */
 export const ANIMALS = [
@@ -262,12 +283,14 @@ export const ACTIVITY_META = {
 
 /*
  * Where a letter grows in the letter fields. Half the board hangs above the
- * child and is pulled downwards, half is buried and is pulled up, so both
- * gestures get practised every round.
+ * child and is pulled downwards, half is at ground level and is pulled up, so
+ * both gestures get practised every round.
  */
 export const LETTER_HABITATS = {
-  above: ["tree", "palm", "trellis"],
-  below: ["soil", "bush", "vine", "ground"],
+  above: FARM_HABITATS.filter(isOverhead),
+  below: FARM_HABITATS.filter(function (habitat) {
+    return !isOverhead(habitat);
+  }),
 };
 
 export const PRAISE = ["やったー", "じょうず", "すごーい", "できた", "ぽんぽこ"];

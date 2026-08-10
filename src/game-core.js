@@ -14,6 +14,7 @@ import {
   FIELD_SOURCE_ACTIVITY,
   HIRAGANA,
   LETTER_HABITATS,
+  isOverhead,
   ROUNDS_PER_ACTIVITY,
 } from "./content.js";
 
@@ -114,13 +115,16 @@ function dealFarmItems(random) {
 
   const rounds = [];
   const habitatCounts = [];
+  const overheadCounts = [];
   for (let index = 0; index < ROUNDS_PER_ACTIVITY; index += 1) {
     rounds.push([]);
     habitatCounts.push({});
+    overheadCounts.push(0);
   }
 
   groups.forEach(function (group) {
     group.forEach(function (item) {
+      const overhead = isOverhead(item.habitat);
       let best = -1;
       shuffle(rounds.map(function (unused, index) {
         return index;
@@ -130,23 +134,54 @@ function dealFarmItems(random) {
           best = index;
           return;
         }
+        /* Spread the growing place first, then the back-row/front-row balance,
+         * so no board ends up with a single lonely tree behind five roots. */
         const here = habitatCounts[index][item.habitat] || 0;
         const there = habitatCounts[best][item.habitat] || 0;
-        if (here < there || (here === there && rounds[index].length < rounds[best].length)) {
-          best = index;
+        if (here !== there) {
+          if (here < there) best = index;
+          return;
         }
+        const bandHere = overhead ? overheadCounts[index] : rounds[index].length - overheadCounts[index];
+        const bandThere = overhead ? overheadCounts[best] : rounds[best].length - overheadCounts[best];
+        if (bandHere !== bandThere) {
+          if (bandHere < bandThere) best = index;
+          return;
+        }
+        if (rounds[index].length < rounds[best].length) best = index;
       });
       rounds[best].push(item);
       habitatCounts[best][item.habitat] = (habitatCounts[best][item.habitat] || 0) + 1;
+      if (overhead) overheadCounts[best] += 1;
     });
   });
   return rounds;
 }
 
+/*
+ * Lay a board out the way a field actually looks: what you reach up and pick
+ * stands in the back row, what you pull out of the ground is in the front row.
+ * Order within each band is still shuffled, so no food owns a corner.
+ */
+function layOutByHeight(items, random) {
+  const overhead = shuffle(
+    items.filter(function (item) {
+      return isOverhead(item.habitat);
+    }),
+    random,
+  );
+  const grounded = shuffle(
+    items.filter(function (item) {
+      return !isOverhead(item.habitat);
+    }),
+    random,
+  );
+  return overhead.concat(grounded);
+}
+
 export function createFarmSession(random) {
   return dealFarmItems(random).map(function (group, roundIndex) {
-    /* Slots are shuffled too, so the same food never grows in the same corner. */
-    const items = shuffle(group, random).map(function (item, slot) {
+    const items = layOutByHeight(group, random).map(function (item, slot) {
       return {
         id: item.id,
         label: item.label,
@@ -293,11 +328,11 @@ export function createLetterFieldSession(activity, curriculumIndex, seed) {
       ),
       random,
     );
-    const items = [];
+    const planted = [];
     for (let index = 0; index < LETTER_FIELD_TARGETS_PER_ROUND; index += 1) {
       const position = start + roundIndex * LETTER_FIELD_TARGETS_PER_ROUND + index;
       const letter = order[modulo(position, order.length)];
-      items.push({
+      planted.push({
         id: letter.id,
         glyph: letter.glyph,
         secondary: letter.secondary,
@@ -307,9 +342,12 @@ export function createLetterFieldSession(activity, curriculumIndex, seed) {
         sprite: letter.sprite,
         bonusSprite: letter.bonusSprite,
         habitat: habitats[index],
-        slot: index,
       });
     }
+    const items = layOutByHeight(planted, random).map(function (item, slot) {
+      item.slot = slot;
+      return item;
+    });
     rounds.push({ activity: activity, roundIndex: roundIndex, items: items });
   }
   return rounds;

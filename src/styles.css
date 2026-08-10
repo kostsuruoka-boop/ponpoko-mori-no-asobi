@@ -937,6 +937,51 @@ input:focus-visible {
   opacity: 0.55;
 }
 
+/*
+ * The direction cue. Every crop carries one, so it teaches the gesture without
+ * ever hinting at the answer, and it steps aside the moment a finger lands.
+ */
+.pull-cue {
+  position: absolute;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  border-right: 7px solid rgba(255, 253, 244, 0.95);
+  border-bottom: 7px solid rgba(255, 253, 244, 0.95);
+  border-radius: 3px;
+  filter: drop-shadow(0 2px 3px rgba(52, 60, 38, 0.45));
+  pointer-events: none;
+}
+
+.produce[data-pull="down"] .pull-cue {
+  bottom: -14%;
+  transform: rotate(45deg);
+  animation: cue-down 1.9s ease-in-out infinite;
+}
+
+.produce[data-pull="up"] .pull-cue {
+  top: -14%;
+  transform: rotate(-135deg);
+  animation: cue-up 1.9s ease-in-out infinite;
+}
+
+@keyframes cue-down {
+  0%, 100% { transform: translateY(-6px) rotate(45deg); opacity: 0.25; }
+  45% { transform: translateY(7px) rotate(45deg); opacity: 0.95; }
+}
+
+@keyframes cue-up {
+  0%, 100% { transform: translateY(6px) rotate(-135deg); opacity: 0.25; }
+  45% { transform: translateY(-7px) rotate(-135deg); opacity: 0.95; }
+}
+
+.produce.is-pulling .pull-cue,
+.produce.is-harvested .pull-cue {
+  opacity: 0;
+  animation: none;
+}
+
 .produce.is-harvested {
   pointer-events: none;
   opacity: 0;

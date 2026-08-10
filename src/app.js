@@ -568,6 +568,12 @@ function installPull(button, habitatName, onPull, onTap) {
   let taps = 0;
 
   button.setAttribute("data-pull", sign > 0 ? "down" : "up");
+  /*
+   * A small arrow on every crop, pointing the way it comes off. It is on all of
+   * them at once, so it never gives away which one is being asked for — it only
+   * ever answers "which way do I move this?".
+   */
+  button.appendChild(el("i", "pull-cue"));
 
   function offsetSprite(distance) {
     sprite.style.setProperty("--pull-offset", distance * sign + "px");

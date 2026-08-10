@@ -27,6 +27,7 @@ Use this order when trade-offs arise.
 ## Experience rules
 
 - **Two gestures, no more.** Tap to choose; drag to harvest. Things overhead are pulled down, things in the ground are pulled up, and a sprite only follows the finger in the direction it can actually come off in. No double taps, long presses, diagonal swipes, pinches, or precise drop targets.
+- Every pullable crop carries a standing arrow pointing the way it comes off. It is on all of them at once, so it teaches the gesture without hinting at the answer, and it hides the moment a finger lands.
 - Three fruitless taps on the same crop harvest it. A child who cannot manage the drag must never be stuck.
 - Play targets are at least 72 CSS px on the shortest side. Adult-only shell buttons may be smaller (52px minimum) so they are harder to hit by accident. `scripts/browser-smoke.mjs` enforces both.
 - No scores, timers, lives, or failure states. A wrong tap makes the tapped thing say its own name and nudges the guidance one stage further.
@@ -69,7 +70,7 @@ For every material gameplay or layout change:
 1. Update `docs/game-design.md` when the interaction, learning goal or visual grammar changes.
 2. Add or update deterministic tests in `tests/`.
 3. Run `npm test`, `npm run lint`, `npm run build`, `git diff --check`.
-4. Run `node scripts/browser-smoke.mjs` in **both** landscape (1194x834) and portrait (834x1194). It plays all six modes to the end with each mode's real gesture and fails on console errors, overflow, undersized tap targets, guidance that points at the wrong element or mimes the wrong gesture, wrong choices that break progression, and a browser running a stale build. Launch Chrome with `--mute-audio`; a headless audio device error would otherwise be reported as a console error.
+4. Run `node scripts/browser-smoke.mjs` in **both** landscape (1194x834) and portrait (834x1194). It plays all six modes to the end with each mode's real gesture and fails on console errors, overflow, undersized tap targets, guidance that points at the wrong element or mimes the wrong gesture, wrong choices that break progression, direction arrows that are missing or point the wrong way, and a browser running a stale build. Launch Chrome with `--mute-audio`; a headless audio device error would otherwise be reported as a console error.
 5. Look at the screenshots in `tmp/ui-check/`. Check overlap, clipping, safe areas and tanuki placement.
 6. Verify the production URL from the iPad home-screen icon, not only a desktop browser.
 
