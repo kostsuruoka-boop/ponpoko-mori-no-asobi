@@ -8,12 +8,21 @@ import {
   ALPHABET,
   ANIMALS,
   ANIMAL_CHOICE_PROGRESSION,
+  BAND_MEMBERS,
+  BAND_TANUKI,
+  BUBBLE_COLORS,
   FARM_HABITATS,
   FARM_ITEMS,
   FRUITS,
   HABITAT_PULL,
   HIRAGANA,
+  LEARN_ACTIVITIES,
   LETTER_HABITATS,
+  PEEKABOO_CAST,
+  PEEKABOO_HIDEOUTS,
+  PEEKABOO_TANUKI,
+  PLAY_ACTIVITIES,
+  YUM,
   isOverhead,
   ROUNDS_PER_ACTIVITY,
   VEGETABLES,
@@ -28,14 +37,23 @@ import {
   advanceCurriculum,
   advanceRound,
   animalById,
+  BAND_NOTES_PER_ROUND,
+  BUBBLES_PER_ROUND,
+  FEAST_COURSES_PER_ROUND,
+  PEEKABOO_SPOTS_PER_ROUND,
   createAnimalSession,
+  createBandSession,
+  createBubbleSession,
   createFarmSession,
+  createFeastSession,
+  createPeekabooSession,
   createLetterFieldSession,
   createLiteracySession,
   createSession,
   hintStage,
   literacyCatalog,
   isLetterField,
+  isPlayActivity,
   literacyOrder,
   loadSavedState,
   nextSeed,
@@ -44,7 +62,14 @@ import {
   shuffle,
   targetsPerRound,
 } from "../src/game-core.js";
-import { HABITATS, habitatFor, pullDirection, pullSign } from "../src/scenery.js";
+import {
+  HABITATS,
+  HIDEOUTS,
+  habitatFor,
+  hideoutFor,
+  pullDirection,
+  pullSign,
+} from "../src/scenery.js";
 
 /* Distinct generators so a bug that ignores `random` cannot pass by accident. */
 const SEEDS = [1, 7, 99, 12345, 20260809, 777777];
@@ -464,12 +489,200 @@ test("guidance escalates on idling and reaches the pointing stage on wrong taps"
   assert.equal(hintStage(Number.NaN, Number.NaN), 0);
 });
 
+/* ------------------------------------------------------------ play modes */
+
+test("every band friend has its own pitch, and every pitch is pentatonic", () => {
+  assert.equal(BAND_MEMBERS.length, BAND_NOTES_PER_ROUND);
+  const ids = BAND_MEMBERS.map((member) => member.id);
+  assert.equal(new Set(ids).size, BAND_MEMBERS.length);
+  const animals = new Set(ANIMALS.map((animal) => animal.id));
+  const pitches = new Set();
+  BAND_MEMBERS.concat([BAND_TANUKI]).forEach((member) => {
+    assert.ok(member.frequency > 0, `${member.id} needs a pitch`);
+    assert.ok(member.voice.length > 0, `${member.id} needs a voice`);
+    assert.ok(!pitches.has(member.frequency), `${member.id} duplicates a pitch`);
+    pitches.add(member.frequency);
+  });
+  BAND_MEMBERS.forEach((member) => {
+    assert.ok(animals.has(member.animal), `${member.id} points at an unknown animal`);
+    assert.ok(/^#[0-9a-f]{6}$/.test(member.color), `${member.id} needs a colour`);
+  });
+
+  /*
+   * Any order of taps has to stay consonant, so every note must be a degree of
+   * one pentatonic scale — C, D, E, G or A, in any octave. Measured in
+   * equal-tempered semitones above C4, which is what the frequencies are.
+   */
+  const PENTATONIC = [0, 2, 4, 7, 9];
+  BAND_MEMBERS.concat([BAND_TANUKI]).forEach((member) => {
+    const semitones = 12 * Math.log2(member.frequency / 261.63);
+    const rounded = Math.round(semitones);
+    assert.ok(
+      Math.abs(semitones - rounded) < 0.05,
+      `${member.id} at ${member.frequency}Hz is not on the chromatic grid`,
+    );
+    assert.ok(
+      PENTATONIC.indexOf(((rounded % 12) + 12) % 12) >= 0,
+      `${member.id} at ${member.frequency}Hz is not a pentatonic degree`,
+    );
+  });
+});
+
+test("the band deals every friend into every round, in a different order", () => {
+  const orders = new Set();
+  generators().forEach((random) => {
+    const rounds = createBandSession(random);
+    assert.equal(rounds.length, ROUNDS_PER_ACTIVITY);
+    rounds.forEach((round) => {
+      assert.equal(round.items.length, BAND_NOTES_PER_ROUND);
+      assert.deepEqual(
+        round.items.map((item) => item.id).toSorted(),
+        BAND_MEMBERS.map((member) => member.id).toSorted(),
+      );
+      round.items.forEach((item, index) => assert.equal(item.slot, index));
+      orders.add(round.items.map((item) => item.id).join(","));
+    });
+  });
+  assert.ok(orders.size > 1, "the band always lines up the same way");
+});
+
+test("somebody is hiding behind every peekaboo spot, and one of them is the tanuki", () => {
+  generators().forEach((random) => {
+    const rounds = createPeekabooSession(random);
+    assert.equal(rounds.length, ROUNDS_PER_ACTIVITY);
+    const seen = new Set();
+    rounds.forEach((round) => {
+      assert.equal(round.items.length, PEEKABOO_SPOTS_PER_ROUND);
+      const tanuki = round.items.filter((item) => item.isTanuki);
+      assert.equal(tanuki.length, 1, "every board needs exactly one tanuki");
+      const ids = round.items.map((item) => item.id);
+      assert.equal(new Set(ids).size, ids.length, "a guest appears twice on one board");
+      const hideouts = round.items.map((item) => item.hideout);
+      assert.equal(new Set(hideouts).size, hideouts.length, "two guests share a hiding place");
+      round.items.forEach((item, index) => {
+        assert.equal(item.slot, index);
+        assert.ok(item.label.length > 0);
+        assert.ok(item.speak.length > 0);
+        assert.ok(PEEKABOO_HIDEOUTS.indexOf(item.hideout) >= 0);
+        /* Only the tanuki is drawn from a pose rather than a sprite. */
+        assert.equal(item.isTanuki, item.sprite === null);
+        if (!item.isTanuki) seen.add(item.id);
+      });
+    });
+    assert.equal(seen.size, (PEEKABOO_SPOTS_PER_ROUND - 1) * ROUNDS_PER_ACTIVITY,
+      "a guest repeated inside one session");
+  });
+});
+
+test("the peekaboo cast is built from artwork the child has already met", () => {
+  assert.equal(PEEKABOO_TANUKI.sprite, null);
+  assert.equal(PEEKABOO_TANUKI.speak, "ばあ");
+  const known = new Set(
+    ANIMALS.map((animal) => animal.id).concat(FRUITS.map((fruit) => fruit.id)),
+  );
+  assert.equal(PEEKABOO_CAST.length, ANIMALS.length + FRUITS.length);
+  PEEKABOO_CAST.forEach((guest) => {
+    assert.ok(known.has(guest.sprite), `${guest.id} points at unknown artwork`);
+    assert.equal(guest.isTanuki, false);
+  });
+  /* Enough guests that a session never has to repeat one. */
+  assert.ok(PEEKABOO_CAST.length >= (PEEKABOO_SPOTS_PER_ROUND - 1) * ROUNDS_PER_ACTIVITY);
+});
+
+test("every hiding place can hide and reveal a guest", () => {
+  assert.deepEqual(Object.keys(HIDEOUTS).toSorted(), PEEKABOO_HIDEOUTS.slice().toSorted());
+  Object.keys(HIDEOUTS).forEach((name) => {
+    const hideout = HIDEOUTS[name];
+    assert.ok(hideout.back.indexOf("<svg") === 0, `${name} needs back artwork`);
+    assert.ok(hideout.front.indexOf("<svg") === 0, `${name} needs a cover`);
+    /* The window has to leave room above the opening for a guest to rise into,
+     * and the opening has to sit low enough to look like a container. */
+    assert.ok(hideout.coverTop >= 50 && hideout.coverTop <= 72, `${name} opening is misplaced`);
+    assert.ok(hideout.guestScale > 0.3 && hideout.guestScale < 0.7);
+    assert.ok(hideout.lip > 0 && hideout.lip < 30);
+  });
+  assert.equal(hideoutFor("nowhere"), HIDEOUTS.box);
+});
+
+test("the feast serves all eighteen foods across one session", () => {
+  generators().forEach((random) => {
+    const rounds = createFeastSession(random);
+    assert.equal(rounds.length, ROUNDS_PER_ACTIVITY);
+    const served = [];
+    rounds.forEach((round) => {
+      assert.equal(round.items.length, FEAST_COURSES_PER_ROUND);
+      round.items.forEach((item, index) => {
+        assert.equal(item.slot, index);
+        assert.ok(item.label.length > 0);
+        served.push(item.id);
+      });
+    });
+    assert.deepEqual(served.toSorted(), FARM_ITEMS.map((item) => item.id).toSorted());
+  });
+});
+
+test("the tanuki has something to say with its mouth full", () => {
+  assert.ok(YUM.length >= 3);
+  YUM.forEach((word) => assert.ok(word.length > 0));
+  assert.equal(new Set(YUM).size, YUM.length);
+});
+
+test("bubbles are spread one to a cell and stay inside the board", () => {
+  assert.equal(BUBBLE_COLORS.length, BUBBLES_PER_ROUND);
+  generators().forEach((random) => {
+    const rounds = createBubbleSession(random);
+    assert.equal(rounds.length, ROUNDS_PER_ACTIVITY);
+    rounds.forEach((round) => {
+      assert.equal(round.items.length, BUBBLES_PER_ROUND);
+      const ids = round.items.map((item) => item.id);
+      assert.equal(new Set(ids).size, ids.length);
+      const colors = round.items.map((item) => item.color);
+      assert.equal(new Set(colors).size, colors.length, "two bubbles share a colour");
+      round.items.forEach((item, index) => {
+        assert.equal(item.slot, index);
+        /* Kept well inside the board: a bubble whose edge left the play area
+         * would be a target a child could not finish popping. */
+        assert.ok(item.x > 8 && item.x < 92, `bubble x out of bounds: ${item.x}`);
+        assert.ok(item.y > 15 && item.y < 85, `bubble y out of bounds: ${item.y}`);
+        assert.ok(item.size >= 17 && item.size <= 24, `bubble size out of range: ${item.size}`);
+        assert.ok(item.duration >= 4000, "a bubble that drifts too fast to catch");
+        assert.ok(item.sway > 0 && item.sway < 6);
+        assert.ok(item.delay >= 0);
+      });
+      /* No two bubbles in the same cell means none can hide behind another. */
+      const cells = round.items.map(
+        (item) => Math.floor(item.x / 33.34) + "," + Math.floor(item.y / 50),
+      );
+      assert.equal(new Set(cells).size, cells.length, "two bubbles landed in one cell");
+    });
+  });
+});
+
+test("every play board fills its shelf exactly", () => {
+  PLAY_ACTIVITIES.forEach((activity) => {
+    const session = createSession(activity, { random: seededRandom(4242) });
+    session.rounds.forEach((round) => {
+      assert.equal(round.items.length, targetsPerRound(activity),
+        `${activity} board does not match its shelf`);
+    });
+  });
+});
+
 /* ----------------------------------------------------------- progression */
 
-test("the session factory supports all four modes and rejects unknown ones", () => {
+test("the session factory supports every mode and rejects unknown ones", () => {
   assert.deepEqual(ACTIVITY_ORDER, [
+    "band", "peekaboo", "feast", "bubble",
     "farm", "animal", "hiragana", "alphabet", "hiragana-field", "alphabet-field",
   ]);
+  /* Play comes before learning, and the two lists never overlap. */
+  assert.deepEqual(PLAY_ACTIVITIES.concat(LEARN_ACTIVITIES), ACTIVITY_ORDER);
+  PLAY_ACTIVITIES.forEach((activity) => {
+    assert.ok(isPlayActivity(activity), `${activity} should be a play mode`);
+  });
+  LEARN_ACTIVITIES.forEach((activity) => {
+    assert.ok(!isPlayActivity(activity), `${activity} should not be a play mode`);
+  });
   ACTIVITY_ORDER.forEach((activity) => {
     const session = createSession(activity, {
       random: seededRandom(11),
@@ -481,6 +694,10 @@ test("the session factory supports all four modes and rejects unknown ones", () 
     session.rounds.forEach((round) => assert.equal(round.activity, activity));
     assert.ok(ACTIVITY_META[activity].title.length > 0);
   });
+  assert.equal(targetsPerRound("band"), 6);
+  assert.equal(targetsPerRound("peekaboo"), 6);
+  assert.equal(targetsPerRound("feast"), 6);
+  assert.equal(targetsPerRound("bubble"), 6);
   assert.equal(targetsPerRound("farm"), 6);
   assert.equal(targetsPerRound("animal"), 4);
   assert.equal(targetsPerRound("hiragana"), 5);

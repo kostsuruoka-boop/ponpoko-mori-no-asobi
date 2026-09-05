@@ -107,6 +107,10 @@ async function waitUntil(expression, description, timeout = 8000) {
 }
 
 const TAP_SELECTOR = {
+  band: (id) => `.band-pad[data-item="${id}"]`,
+  peekaboo: (id) => `.hideout[data-item="${id}"]`,
+  feast: (id) => `.feast-food[data-item="${id}"]`,
+  bubble: (id) => `.bubble[data-item="${id}"]`,
   farm: (id) => `.produce[data-item="${id}"]`,
   animal: (id) => `.choice-card[data-animal="${id}"]`,
   hiragana: (id) => `.letter-cell[data-letter="${id}"]`,
@@ -115,12 +119,27 @@ const TAP_SELECTOR = {
   "alphabet-field": (id) => `.letter-crop[data-item="${id}"]`,
 };
 
-const ACTIVITIES = ["farm", "animal", "hiragana", "alphabet", "hiragana-field", "alphabet-field"];
+const ACTIVITIES = [
+  "band",
+  "peekaboo",
+  "feast",
+  "bubble",
+  "farm",
+  "animal",
+  "hiragana",
+  "alphabet",
+  "hiragana-field",
+  "alphabet-field",
+];
 
 /* Modes where taking something means dragging it off its plant. */
 const PULL_ACTIVITIES = ["farm", "hiragana-field", "alphabet-field"];
 
 const CHOICE_SELECTOR = {
+  band: ".band-pad",
+  peekaboo: ".hideout",
+  feast: ".feast-food",
+  bubble: ".bubble",
   farm: ".produce",
   animal: ".choice-card",
   hiragana: ".letter-cell",
@@ -130,6 +149,10 @@ const CHOICE_SELECTOR = {
 };
 
 const CHOICE_ATTRIBUTE = {
+  band: "data-item",
+  peekaboo: "data-item",
+  feast: "data-item",
+  bubble: "data-item",
   farm: "data-item",
   animal: "data-animal",
   hiragana: "data-letter",
@@ -250,7 +273,8 @@ async function checkPullCues(activity) {
 
 async function checkTapTargets(activity) {
   const play = await smallestSide(
-    ".produce, .letter-crop, .choice-card, .letter-cell, .ask-bubble, .next-round-button",
+    ".produce, .letter-crop, .choice-card, .letter-cell, .band-pad, .hideout, .feast-food,"
+    + " .bubble, .ask-bubble, .ask-tanuki, .next-round-button",
   );
   if (!play.count) throw new Error(`${activity}: no tappable play targets found`);
   if (play.min < PLAY_TARGET_MINIMUM) {
@@ -261,6 +285,80 @@ async function checkTapTargets(activity) {
     throw new Error(`${activity}: shell button too small (${Math.round(shell.min)}px)`);
   }
   return play.min;
+}
+
+/*
+ * Whatever the ask bubble is showing has to fit inside the bubble. The card is
+ * a fixed square sized from the viewport, so a phrase whose font size is also
+ * derived from the viewport can — and once did — walk straight out of it.
+ */
+async function checkAskFits(where) {
+  const report = await evaluate(`(() => {
+    const bubble = document.querySelector(".ask-bubble");
+    const body = document.querySelector(".ask-bubble-body");
+    if (!bubble || !body) return { missing: true };
+    const outer = bubble.getBoundingClientRect();
+    const children = [...body.children];
+    if (!children.length) return { empty: true };
+    for (const child of children) {
+      const box = child.getBoundingClientRect();
+      if (!box.width) continue;
+      /* A few pixels of slack for the idle bob and the landing pop. */
+      if (box.left < outer.left - 6 || box.right > outer.right + 6
+        || box.top < outer.top - 12 || box.bottom > outer.bottom + 12) {
+        return {
+          spills: child.className || child.tagName,
+          box: [Math.round(box.left), Math.round(box.top), Math.round(box.right), Math.round(box.bottom)],
+          bubble: [Math.round(outer.left), Math.round(outer.top), Math.round(outer.right), Math.round(outer.bottom)],
+        };
+      }
+    }
+    return { ok: children.length };
+  })()`);
+  if (report.missing) throw new Error(`${where}: no ask bubble on the board`);
+  if (!report.ok && !report.empty) {
+    throw new Error(`${where}: ask bubble content overflows ${JSON.stringify(report)}`);
+  }
+}
+
+/*
+ * Boards whose cells are all the same shape by construction. One cell coming
+ * out a different size means a layout collision, and a smaller-but-still-legal
+ * tap target is exactly the kind of thing that slips past a minimum-size check:
+ * a modifier class named `hideout-box` once restyled the button it was on,
+ * because `.hideout-box` was also the element inside it.
+ */
+const UNIFORM_SELECTOR = {
+  band: ".band-pad",
+  peekaboo: ".hideout",
+  feast: ".feast-food",
+  animal: ".choice-card",
+  hiragana: ".letter-cell",
+  alphabet: ".letter-cell",
+};
+
+async function checkUniformBoard(activity) {
+  const selector = UNIFORM_SELECTOR[activity];
+  if (!selector) return;
+  const report = await evaluate(`(() => {
+    const nodes = [...document.querySelectorAll(${JSON.stringify(selector)})];
+    if (nodes.length < 2) return { ok: nodes.length };
+    const boxes = nodes.map((node) => node.getBoundingClientRect());
+    const widths = boxes.map((box) => box.width);
+    const heights = boxes.map((box) => box.height);
+    const spread = (values) => Math.max(...values) - Math.min(...values);
+    if (spread(widths) > 4 || spread(heights) > 4) {
+      return {
+        uneven: true,
+        widths: widths.map(Math.round),
+        heights: heights.map(Math.round),
+      };
+    }
+    return { ok: nodes.length };
+  })()`);
+  if (!report.ok) {
+    throw new Error(`${activity}: board cells are not uniform ${JSON.stringify(report)}`);
+  }
 }
 
 async function checkNoOverflow(where) {
@@ -340,6 +438,11 @@ async function playRound(activity, roundIndex) {
       await take(activity, targetId);
     }
     await wait(120);
+    /* Peekaboo swaps the bubble for a shout the moment somebody appears, and
+     * that shout is the largest thing the bubble ever has to hold. */
+    if (activity === "peekaboo" && roundIndex === 0 && step === 0) {
+      await checkAskFits(`${activity} mid-reveal`);
+    }
   }
   await waitUntil('!document.querySelector("#round-complete").hidden', `${activity} round ${roundIndex} to complete`, 12000);
   const filled = await evaluate('document.querySelectorAll(".collect-slot.is-filled").length');
@@ -355,6 +458,8 @@ async function playActivity(activity) {
   await wait(400);
   const smallest = await checkTapTargets(activity);
   await checkPullCues(activity);
+  await checkAskFits(activity);
+  await checkUniformBoard(activity);
   await checkNoOverflow(activity);
   await shot(activity);
 
@@ -448,7 +553,7 @@ await tap('[data-gate="5"]');
 if ((await evaluate('document.querySelector("#parent-settings").hidden')) !== false) {
   throw new Error("Parent settings did not unlock");
 }
-if ((await evaluate('document.querySelector("#session-count").textContent')) !== "6回") {
+if ((await evaluate('document.querySelector("#session-count").textContent')) !== "10回") {
   throw new Error("Completed sessions were not persisted");
 }
 await tap("#overlay-close");

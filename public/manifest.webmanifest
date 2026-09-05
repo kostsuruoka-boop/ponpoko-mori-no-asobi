@@ -1,7 +1,7 @@
 {
   "name": "ぽんぽこ もりの だいぼうけん",
   "short_name": "ぽんぽこの森",
-  "description": "たぬきと農園・どうぶつ・ひらがな・ABCで遊ぶ、iPad向け知育ゲーム",
+  "description": "たぬきと10のあそび。おんがくたい・いないいないばあ・ごはん・しゃぼんだま、そして農園・どうぶつ・ひらがな・ABC。iPad向け",
   "lang": "ja",
   "start_url": "./index.html",
   "scope": "./",

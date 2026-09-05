@@ -6,7 +6,13 @@
  * Sprite ids match the `cell-*` classes in styles.css.
  */
 
-export const ACTIVITY_ORDER = [
+/*
+ * Play first, then the finding games. The order is the order the home screen
+ * offers them in, and it says what this app is for: the tanuki is the toy, and
+ * the learning games are what you grow into.
+ */
+export const PLAY_ACTIVITIES = ["band", "peekaboo", "feast", "bubble"];
+export const LEARN_ACTIVITIES = [
   "farm",
   "animal",
   "hiragana",
@@ -14,6 +20,7 @@ export const ACTIVITY_ORDER = [
   "hiragana-field",
   "alphabet-field",
 ];
+export const ACTIVITY_ORDER = PLAY_ACTIVITIES.concat(LEARN_ACTIVITIES);
 
 /* The two letter-field activities grow letters instead of food. */
 export const LETTER_FIELD_ACTIVITY = { hiragana: "hiragana-field", alphabet: "alphabet-field" };
@@ -228,9 +235,122 @@ export const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(function (gly
   };
 });
 
+/* ------------------------------------------------------------ play modes */
+/*
+ * Four activities that exist to be funny rather than instructive. None of them
+ * asks for anything, so none of them can be answered wrongly: the tanuki is the
+ * toy and the child is the one making things happen. Words still arrive — a fed
+ * apple says "りんご" — but only as the by-product of a joke that landed.
+ */
+
+/*
+ * The band. Every pitch is a degree of the C major pentatonic scale, so a
+ * toddler hammering all six friends at once still produces something
+ * consonant. There is no wrong note to play, by construction rather than by
+ * forgiveness.
+ */
+export const BAND_MEMBERS = [
+  { id: "band-elephant", animal: "elephant", label: "ラッパ", voice: "horn", frequency: 196.0, color: "#8fc98d" },
+  { id: "band-dog", animal: "dog", label: "たいこ", voice: "drum", frequency: 261.63, color: "#f0a071" },
+  { id: "band-cat", animal: "cat", label: "もっきん", voice: "marimba", frequency: 587.33, color: "#f3c750" },
+  { id: "band-panda", animal: "panda", label: "ピアノ", voice: "marimba", frequency: 659.25, color: "#f39ab0" },
+  { id: "band-monkey", animal: "monkey", label: "タンバリン", voice: "shaker", frequency: 880.0, color: "#c096dd" },
+  { id: "band-bird", animal: "bird", label: "すず", voice: "bell", frequency: 1046.5, color: "#82c9e8" },
+];
+
+/* The tanuki's own belly drum: the one thing every tanuki story has. */
+export const BAND_TANUKI = { id: "band-tanuki", label: "ぽんぽこ", voice: "belly", frequency: 146.83 };
+
+/*
+ * Peekaboo. Six hiding places, and somebody behind every one of them — an empty
+ * box would read as "you got it wrong", which is exactly what this activity is
+ * not for.
+ */
+export const PEEKABOO_HIDEOUTS = ["bush", "pot", "box", "leaves", "hollow", "basket"];
+
+export const PEEKABOO_TANUKI = {
+  id: "peek-tanuki",
+  label: "たぬき",
+  speak: "ばあ",
+  sprite: null,
+  isTanuki: true,
+};
+
+/* Everyone else who might be hiding, reusing artwork the child already knows. */
+export const PEEKABOO_CAST = ANIMALS.map(function (animal) {
+  return {
+    id: "peek-" + animal.id,
+    label: animal.label,
+    speak: animal.label + (animal.cry ? "。" + animal.cry : ""),
+    sprite: animal.id,
+    isTanuki: false,
+  };
+}).concat(
+  FRUITS.map(function (fruit) {
+    return {
+      id: "peek-" + fruit.id,
+      label: fruit.label,
+      speak: fruit.label,
+      sprite: fruit.id,
+      isTanuki: false,
+    };
+  }),
+);
+
+/* What the tanuki says with its mouth full. Cycled, never random, so the same
+ * word does not land twice in a row. */
+export const YUM = ["おいしい", "もぐもぐ", "うまうま", "おかわり"];
+
+/* Bubbles. Colour is the only variable that matters; everything else about a
+ * bubble is decided by the board so no two floats look alike. */
+export const BUBBLE_COLORS = [
+  "#8fd3f4",
+  "#f7a8c4",
+  "#ffdf85",
+  "#a4e3bf",
+  "#c5b4f3",
+  "#ffbfa0",
+];
+
 /* --------------------------------------------------------------- staging */
 /* One place for every per-activity string, icon and tanuki placement. */
 export const ACTIVITY_META = {
+  band: {
+    title: "おんがくたい",
+    icon: "\u266a",
+    pose: "jump",
+    askPrefix: "",
+    completeLine: "たのしいね",
+    finishKicker: "ぽんぽこ コンサート！",
+    finishTitle: "たのしかったね！",
+  },
+  peekaboo: {
+    title: "いないいないばあ",
+    icon: "👀",
+    pose: "reach",
+    askPrefix: "",
+    completeLine: "みんな いたね",
+    finishKicker: "みんな でてきた！",
+    finishTitle: "びっくりしたね！",
+  },
+  feast: {
+    title: "ごはん",
+    icon: "🍎",
+    pose: "basket",
+    askPrefix: "",
+    completeLine: "おなか いっぱい",
+    finishKicker: "ぽんぽこ まんぷく！",
+    finishTitle: "おなか いっぱい！",
+  },
+  bubble: {
+    title: "しゃぼんだま",
+    icon: "\u25cb",
+    pose: "wave",
+    askPrefix: "",
+    completeLine: "ぜんぶ われたね",
+    finishKicker: "ぽんぽこ しゃぼんだま！",
+    finishTitle: "たくさん われたね！",
+  },
   farm: {
     title: "のうえん",
     icon: "🌱",

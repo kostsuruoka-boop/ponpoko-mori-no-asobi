@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="ぽんぽこの森" />
     <meta name="format-detection" content="telephone=no" />
-    <meta name="description" content="たぬきと農園・どうぶつ・ひらがな・ABCで遊ぶ、iPad向け知育ゲーム。" />
+    <meta name="description" content="たぬきと10のあそび。おんがくたい・いないいないばあ・ごはん・しゃぼんだま、そして農園・どうぶつ・ひらがな・ABC。iPad向け。" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
@@ -36,41 +36,74 @@
         </header>
 
         <div class="home-body">
-          <div class="home-guide" aria-hidden="true">
-            <div id="home-tanuki" class="home-tanuki tanuki-sprite pose-wave"></div>
+          <div class="home-guide">
             <div class="home-bubble"><span>どれで<br />あそぶ？</span></div>
+            <button id="home-tanuki" class="home-tanuki tanuki-sprite pose-wave" type="button" aria-label="たぬきを つつく"></button>
           </div>
 
-          <nav class="mode-menu" aria-label="あそびを えらぶ">
-            <button class="mode-card mode-farm" type="button" data-mode="farm" aria-label="のうえんで あそぶ">
-              <span class="mode-art" aria-hidden="true">
-                <i class="sprite cell-apple"></i><i class="sprite cell-carrot"></i>
-              </span>
-              <strong>のうえん</strong><small>さがして しゅうかく</small>
-            </button>
-            <button class="mode-card mode-animal" type="button" data-mode="animal" aria-label="どうぶつで あそぶ">
-              <span class="mode-art" aria-hidden="true">
-                <i class="sprite cell-dog"></i><i class="sprite cell-elephant"></i>
-              </span>
-              <strong>どうぶつ</strong><small>かげを あてる</small>
-            </button>
-            <button class="mode-card mode-hiragana" type="button" data-mode="hiragana" aria-label="ひらがなで あそぶ">
-              <span class="mode-art mode-art-letter" aria-hidden="true"><b>あ</b></span>
-              <strong>ひらがな</strong><small>もじを さがす</small>
-            </button>
-            <button class="mode-card mode-alphabet" type="button" data-mode="alphabet" aria-label="ABCで あそぶ">
-              <span class="mode-art mode-art-letter mode-art-abc" aria-hidden="true"><b>A<i>a</i></b></span>
-              <strong>ABC</strong><small>もじを さがす</small>
-            </button>
-            <button class="mode-card mode-hiragana-field" type="button" data-mode="hiragana-field" aria-label="ひらがなばたけで あそぶ">
-              <span class="mode-art mode-art-crop" aria-hidden="true"><b>あ</b><em>い</em></span>
-              <strong>もじばたけ</strong><small>ひっぱって とる</small>
-            </button>
-            <button class="mode-card mode-alphabet-field" type="button" data-mode="alphabet-field" aria-label="ABCばたけで あそぶ">
-              <span class="mode-art mode-art-crop mode-art-abc" aria-hidden="true"><b>A</b><em>B</em></span>
-              <strong>ABCばたけ</strong><small>ひっぱって とる</small>
-            </button>
-          </nav>
+          <section class="mode-shelf shelf-play" aria-labelledby="shelf-play-title">
+            <h2 class="shelf-title" id="shelf-play-title"><span>たぬきと あそぶ</span></h2>
+            <nav class="mode-menu menu-play" aria-label="たぬきと あそぶ">
+              <button class="mode-card mode-band" type="button" data-mode="band" aria-label="おんがくたいで あそぶ">
+                <span class="mode-art mode-art-band" aria-hidden="true">
+                  <i class="sprite cell-dog"></i><i class="sprite cell-bird"></i><b>♪</b>
+                </span>
+                <strong>おんがくたい</strong><small>おして ならす</small>
+              </button>
+              <button class="mode-card mode-peekaboo" type="button" data-mode="peekaboo" aria-label="いないいないばあで あそぶ">
+                <span class="mode-art mode-art-peek" aria-hidden="true">
+                  <i class="sprite cell-panda"></i><em></em>
+                </span>
+                <strong>いないいない ばあ</strong><small>だれが いるかな</small>
+              </button>
+              <button class="mode-card mode-feast" type="button" data-mode="feast" aria-label="ごはんで あそぶ">
+                <span class="mode-art mode-art-feast" aria-hidden="true">
+                  <i class="tanuki-sprite pose-basket"></i><i class="sprite cell-apple"></i>
+                </span>
+                <strong>ごはん</strong><small>たぬきに あげる</small>
+              </button>
+              <button class="mode-card mode-bubble" type="button" data-mode="bubble" aria-label="しゃぼんだまで あそぶ">
+                <span class="mode-art mode-art-bubble" aria-hidden="true">
+                  <b></b><b></b><b></b>
+                </span>
+                <strong>しゃぼんだま</strong><small>さわると ぱちん</small>
+              </button>
+            </nav>
+          </section>
+
+          <section class="mode-shelf shelf-learn" aria-labelledby="shelf-learn-title">
+            <h2 class="shelf-title" id="shelf-learn-title"><span>みつけて あそぶ</span></h2>
+            <nav class="mode-menu menu-learn" aria-label="みつけて あそぶ">
+              <button class="mode-card mode-farm" type="button" data-mode="farm" aria-label="のうえんで あそぶ">
+                <span class="mode-art" aria-hidden="true">
+                  <i class="sprite cell-apple"></i><i class="sprite cell-carrot"></i>
+                </span>
+                <strong>のうえん</strong><small>さがして しゅうかく</small>
+              </button>
+              <button class="mode-card mode-animal" type="button" data-mode="animal" aria-label="どうぶつで あそぶ">
+                <span class="mode-art" aria-hidden="true">
+                  <i class="sprite cell-dog"></i><i class="sprite cell-elephant"></i>
+                </span>
+                <strong>どうぶつ</strong><small>かげを あてる</small>
+              </button>
+              <button class="mode-card mode-hiragana" type="button" data-mode="hiragana" aria-label="ひらがなで あそぶ">
+                <span class="mode-art mode-art-letter" aria-hidden="true"><b>あ</b></span>
+                <strong>ひらがな</strong><small>もじを さがす</small>
+              </button>
+              <button class="mode-card mode-alphabet" type="button" data-mode="alphabet" aria-label="ABCで あそぶ">
+                <span class="mode-art mode-art-letter mode-art-abc" aria-hidden="true"><b>A<i>a</i></b></span>
+                <strong>ABC</strong><small>もじを さがす</small>
+              </button>
+              <button class="mode-card mode-hiragana-field" type="button" data-mode="hiragana-field" aria-label="ひらがなばたけで あそぶ">
+                <span class="mode-art mode-art-crop" aria-hidden="true"><b>あ</b><em>い</em></span>
+                <strong>もじばたけ</strong><small>ひっぱって とる</small>
+              </button>
+              <button class="mode-card mode-alphabet-field" type="button" data-mode="alphabet-field" aria-label="ABCばたけで あそぶ">
+                <span class="mode-art mode-art-crop mode-art-abc" aria-hidden="true"><b>A</b><em>B</em></span>
+                <strong>ABCばたけ</strong><small>ひっぱって とる</small>
+              </button>
+            </nav>
+          </section>
         </div>
       </section>
 
@@ -160,10 +193,17 @@
           </label>
 
           <div class="parent-note">
-            <strong>この4つの知育設計</strong>
+            <strong>10のあそび</strong>
             <p>
-              のうえん＝名前を聞いて探す語彙あそび。どうぶつ＝影の形あわせ。
-              ひらがな＝五十音表から探す文字あそび。ABC＝A〜Zの表から探す文字あそび。
+              <b>たぬきと あそぶ</b>（4つ）は正解のないあそびです。
+              おんがくたい＝押すと鳴る楽器。いないいないばあ＝隠れている相手を出す。
+              ごはん＝たぬきに食べものをあげる。しゃぼんだま＝触ると割れる。
+              指示も出題もなく、押せば必ず何かが起きます。
+            </p>
+            <p>
+              <b>みつけて あそぶ</b>（6つ）は探すあそびです。
+              のうえん＝名前を聞いて探す語彙。どうぶつ＝影の形あわせ。
+              ひらがな／ABC＝表から文字を探す。もじばたけ＝好きな文字を引き抜く。
               まちがえても減点はなく、押したものが自分の名前を教えてくれます。
             </p>
           </div>
