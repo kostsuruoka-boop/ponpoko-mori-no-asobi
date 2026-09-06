@@ -25,10 +25,6 @@ import {
 } from "./content.js";
 
 export const FARM_TARGETS_PER_ROUND = 6;
-export const BAND_NOTES_PER_ROUND = 6;
-export const PEEKABOO_SPOTS_PER_ROUND = 6;
-export const FEAST_COURSES_PER_ROUND = 6;
-export const BUBBLES_PER_ROUND = 6;
 export const ANIMAL_TARGETS_PER_ROUND = 4;
 export const LITERACY_TARGETS_PER_ROUND = 5;
 export const LETTER_FIELD_TARGETS_PER_ROUND = 6;
@@ -363,147 +359,147 @@ export function createLetterFieldSession(activity, curriculumIndex, seed) {
   return rounds;
 }
 
-/* ------------------------------------------------------------ play modes */
+/* ------------------------------------------------------------ toy boards */
 /*
- * The four play activities share one shape: a board of things that all do
- * something when touched, and a round that ends after six of those somethings.
- * Nothing here picks a "correct" item, because none of these boards has one.
+ * The four toys have no rounds, no questions and no end. What they need from
+ * the rules is therefore not a session but a dealer: hand me the next guest,
+ * the next plate, the next bubble — and never hand me one that is already on
+ * the board, because two of the same thing in front of a toddler reads as a
+ * mistake rather than as variety.
  */
 export function isPlayActivity(activity) {
   return PLAY_ACTIVITIES.indexOf(activity) >= 0;
 }
 
+/* How many things each toy keeps in front of the child at once. */
+export const BAND_FRIENDS = BAND_MEMBERS.length;
+export const PEEKABOO_SPOTS = 6;
+export const FEAST_PLATES = 6;
+export const BUBBLES_ON_SCREEN = 6;
+
+/* How many taps earn a spontaneous celebration. Nothing gates on it: the play
+ * carries on either way, it just occasionally boils over. */
+export const CHEER_EVERY = 8;
+
 /*
- * The band lines up differently every round, so a child who learned "the drum
- * is the left one" still has to look. Which pitch each friend sings never
- * changes: the dog is always the low drum, and that constancy is the whole
- * pleasure of coming back to it.
+ * Draw one item that is not already out. Falling back to the whole catalogue
+ * rather than returning nothing matters: a dealer that can run dry would end a
+ * toy that is not allowed to end.
  */
-export function createBandSession(random) {
-  const rounds = [];
-  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
-    rounds.push({
-      activity: "band",
-      roundIndex: roundIndex,
-      /* Six pads, and six notes to fill. The pads are never used up — the
-       * round counts how often the child played, not what is left. */
-      items: shuffle(BAND_MEMBERS, random).map(function (member, slot) {
-        return {
-          id: member.id,
-          animal: member.animal,
-          label: member.label,
-          voice: member.voice,
-          frequency: member.frequency,
-          color: member.color,
-          slot: slot,
-        };
-      }),
+export function pickNext(catalog, taken, random) {
+  const free = catalog.filter(function (item) {
+    return taken.indexOf(item.id) < 0;
+  });
+  return shuffle(free.length ? free : catalog, random)[0];
+}
+
+/* The tanuki turns up in the hiding places about one guest in five: often
+ * enough to be worth hoping for, rarely enough to still be a surprise. */
+export const PEEKABOO_TANUKI_CHANCE = 0.2;
+
+export function nextGuest(taken, random) {
+  const pick = random || Math.random;
+  if (taken.indexOf(PEEKABOO_TANUKI.id) < 0 && pick() < PEEKABOO_TANUKI_CHANCE) {
+    return PEEKABOO_TANUKI;
+  }
+  return pickNext(PEEKABOO_CAST, taken, pick);
+}
+
+export function dealPeekaboo(random) {
+  const pick = random || Math.random;
+  const hideouts = shuffle(PEEKABOO_HIDEOUTS, pick);
+  const taken = [];
+  const spots = [];
+  for (let index = 0; index < PEEKABOO_SPOTS; index += 1) {
+    /* One tanuki on the opening board, so the first thing found can be the
+     * one the child came for. */
+    const guest = index === 0 ? PEEKABOO_TANUKI : nextGuest(taken, pick);
+    taken.push(guest.id);
+    spots.push({
+      slot: index,
+      hideout: hideouts[index % hideouts.length],
+      id: guest.id,
+      label: guest.label,
+      en: guest.en,
+      sprite: guest.sprite,
+      isTanuki: guest.isTanuki === true,
     });
   }
-  return rounds;
+  return shuffle(spots, pick).map(function (spot, index) {
+    spot.slot = index;
+    return spot;
+  });
+}
+
+export function nextCourse(taken, random) {
+  return pickNext(FARM_ITEMS, taken, random || Math.random);
+}
+
+export function dealFeast(random) {
+  const pick = random || Math.random;
+  const taken = [];
+  const plates = [];
+  for (let index = 0; index < FEAST_PLATES; index += 1) {
+    const item = nextCourse(taken, pick);
+    taken.push(item.id);
+    plates.push({ slot: index, id: item.id, label: item.label, en: item.en, kind: item.kind });
+  }
+  return plates;
+}
+
+/* The band never changes who is in it, only where they stand. */
+export function dealBand(random) {
+  return shuffle(BAND_MEMBERS, random).map(function (member, index) {
+    return {
+      slot: index,
+      id: member.id,
+      animal: member.animal,
+      label: member.label,
+      voice: member.voice,
+      frequency: member.frequency,
+      color: member.color,
+    };
+  });
 }
 
 /*
- * Peekaboo. Somebody is behind every single hiding place — an empty one would
- * read as "wrong guess", and there are no wrong guesses here. The tanuki is
- * always one of them, so every board still holds the thing worth finding.
- */
-export function createPeekabooSession(random) {
-  /* Fifteen guests drawn from twenty-one without replacement: nobody repeats
-   * inside a session, which keeps the surprise a surprise. */
-  const guests = shuffle(PEEKABOO_CAST, random);
-  const rounds = [];
-  let cursor = 0;
-  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
-    const cast = [PEEKABOO_TANUKI];
-    while (cast.length < PEEKABOO_SPOTS_PER_ROUND) {
-      cast.push(guests[cursor % guests.length]);
-      cursor += 1;
-    }
-    const hideouts = shuffle(PEEKABOO_HIDEOUTS, random);
-    rounds.push({
-      activity: "peekaboo",
-      roundIndex: roundIndex,
-      items: shuffle(cast, random).map(function (character, slot) {
-        return {
-          id: character.id,
-          label: character.label,
-          speak: character.speak,
-          sprite: character.sprite,
-          isTanuki: character.isTanuki === true,
-          hideout: hideouts[slot % hideouts.length],
-          slot: slot,
-        };
-      }),
-    });
-  }
-  return rounds;
-}
-
-/*
- * Feeding the tanuki. Eighteen foods dealt over three rounds means every one of
- * them gets eaten exactly once per session, so the vocabulary the farm teaches
- * comes back around without anybody being asked a question.
- */
-export function createFeastSession(random) {
-  const order = shuffle(FARM_ITEMS, random);
-  const rounds = [];
-  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
-    const group = order.slice(
-      roundIndex * FEAST_COURSES_PER_ROUND,
-      (roundIndex + 1) * FEAST_COURSES_PER_ROUND,
-    );
-    rounds.push({
-      activity: "feast",
-      roundIndex: roundIndex,
-      items: group.map(function (item, slot) {
-        return { id: item.id, label: item.label, kind: item.kind, slot: slot };
-      }),
-    });
-  }
-  return rounds;
-}
-
-/*
- * Bubbles. One per cell of a 3x2 grid, jittered inside its own cell: they never
- * line up like a chart, and they can never pile up on top of each other either,
+ * Bubbles. One per cell of a hidden 3x2 grid, jittered inside its own cell, so
+ * they never line up like a chart and can never pile up on top of each other —
  * which is what keeps every one of them reachable by a clumsy finger.
  */
 const BUBBLE_COLUMNS = 3;
 const BUBBLE_ROWS = 2;
 
-export function createBubbleSession(random) {
+export function makeBubble(cell, serial, random) {
+  const pick = random || Math.random;
+  const column = cell % BUBBLE_COLUMNS;
+  const row = Math.floor(cell / BUBBLE_COLUMNS);
+  return {
+    id: "bubble-" + serial,
+    cell: cell,
+    color: BUBBLE_COLORS[serial % BUBBLE_COLORS.length],
+    /* Percentages of the play area, with the margins chosen so a bubble's edge
+     * never leaves it even at the largest size. */
+    x: (column + 0.5) * (100 / BUBBLE_COLUMNS) + (pick() * 10 - 5),
+    y: (row + 0.5) * (100 / BUBBLE_ROWS) + (pick() * 8 - 4),
+    size: 17 + pick() * 7,
+    /* A slow sway: alive enough to be worth chasing, slow enough that a
+     * toddler's finger lands on it anyway. */
+    sway: 2.6 + pick() * 2.6,
+    duration: 4200 + pick() * 2600,
+    delay: pick() * 1400,
+  };
+}
+
+export function dealBubbles(random) {
   const pick = random || Math.random;
   const cells = [];
   for (let index = 0; index < BUBBLE_COLUMNS * BUBBLE_ROWS; index += 1) cells.push(index);
-  const rounds = [];
-  for (let roundIndex = 0; roundIndex < ROUNDS_PER_ACTIVITY; roundIndex += 1) {
-    const order = shuffle(cells, pick);
-    const colors = shuffle(BUBBLE_COLORS, pick);
-    const items = [];
-    for (let index = 0; index < BUBBLES_PER_ROUND; index += 1) {
-      const cell = order[index % order.length];
-      const column = cell % BUBBLE_COLUMNS;
-      const row = Math.floor(cell / BUBBLE_COLUMNS);
-      items.push({
-        id: "bubble-" + roundIndex + "-" + index,
-        color: colors[index % colors.length],
-        /* Percentages of the play area. The margins keep a bubble's edge off
-         * the boundary even at its largest, so none is ever half-reachable. */
-        x: (column + 0.5) * (100 / BUBBLE_COLUMNS) + (pick() * 10 - 5),
-        y: (row + 0.5) * (100 / BUBBLE_ROWS) + (pick() * 8 - 4),
-        size: 17 + pick() * 7,
-        /* A slow sway: alive enough to be worth chasing, slow enough that a
-         * toddler's finger always lands on it anyway. */
-        sway: 2.6 + pick() * 2.6,
-        duration: 4200 + pick() * 2600,
-        delay: pick() * 1400,
-        slot: index,
-      });
-    }
-    rounds.push({ activity: "bubble", roundIndex: roundIndex, items: items });
-  }
-  return rounds;
+  return shuffle(cells, pick)
+    .slice(0, BUBBLES_ON_SCREEN)
+    .map(function (cell, index) {
+      return makeBubble(cell, index, pick);
+    });
 }
 
 /* ------------------------------------------------------------ progression */
@@ -514,10 +510,9 @@ export function createBubbleSession(random) {
 export function createSession(activity, options) {
   const settings = options || {};
   const random = settings.random || Math.random;
-  if (activity === "band") return { activity: activity, rounds: createBandSession(random) };
-  if (activity === "peekaboo") return { activity: activity, rounds: createPeekabooSession(random) };
-  if (activity === "feast") return { activity: activity, rounds: createFeastSession(random) };
-  if (activity === "bubble") return { activity: activity, rounds: createBubbleSession(random) };
+  if (isPlayActivity(activity)) {
+    throw new Error("Play activities have no session: they never end");
+  }
   if (activity === "farm") return { activity: activity, rounds: createFarmSession(random) };
   if (activity === "animal") return { activity: activity, rounds: createAnimalSession(random) };
   if (activity === "hiragana" || activity === "alphabet") {
@@ -536,10 +531,6 @@ export function createSession(activity, options) {
 }
 
 export function targetsPerRound(activity) {
-  if (activity === "band") return BAND_NOTES_PER_ROUND;
-  if (activity === "peekaboo") return PEEKABOO_SPOTS_PER_ROUND;
-  if (activity === "feast") return FEAST_COURSES_PER_ROUND;
-  if (activity === "bubble") return BUBBLES_PER_ROUND;
   if (activity === "farm") return FARM_TARGETS_PER_ROUND;
   if (activity === "animal") return ANIMAL_TARGETS_PER_ROUND;
   if (isLetterField(activity)) return LETTER_FIELD_TARGETS_PER_ROUND;

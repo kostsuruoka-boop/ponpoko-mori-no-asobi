@@ -266,23 +266,39 @@ input:focus-visible {
  * learn from come second. The tanuki keeps its own column and is a button, not
  * a picture.
  */
+/*
+ * The tanuki stands in the middle of its own toys.
+ *
+ * The four things it does are the largest buttons on the screen and surround
+ * it; the letter games sit in a strip underneath, because they are what she
+ * grows into rather than what she opens the app for. The previous version put
+ * ten equal cards in a grid and read as a menu; this one reads as a character
+ * with things to do.
+ */
 .home-body {
   position: absolute;
   top: 104px;
   right: max(2vw, 16px);
-  bottom: max(2vh, 14px);
+  bottom: calc(max(2vh, 14px) + env(safe-area-inset-bottom));
   left: max(2vw, 16px);
   z-index: 8;
   display: grid;
-  grid-template-columns: minmax(170px, 0.46fr) minmax(540px, 1.54fr);
-  grid-template-rows: minmax(0, 1.14fr) minmax(0, 1.5fr);
-  grid-template-areas: "guide play" "guide learn";
-  gap: clamp(8px, 1.4vw, 20px);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: clamp(10px, 1.8vh, 22px);
 }
 
-.home-guide {
+.toy-menu {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: clamp(10px, 1.5vw, 20px);
+  min-height: 0;
+}
+
+.home-star {
   position: relative;
-  grid-area: guide;
+  grid-column: 2;
+  grid-row: 1 / -1;
   min-width: 0;
   min-height: 0;
 }
@@ -291,134 +307,52 @@ input:focus-visible {
   position: absolute;
   bottom: 0;
   left: 50%;
-  width: min(21vw, 32vh, 260px);
-  height: min(21vw, 32vh, 260px);
+  width: min(27vw, 44vh, 360px);
+  height: min(27vw, 44vh, 360px);
   transform: translateX(-50%);
   filter: drop-shadow(0 18px 13px rgba(49, 66, 39, 0.24));
   animation: breathe 2.2s ease-in-out infinite;
 }
 
+@keyframes breathe {
+  50% { transform: translateX(-50%) translateY(-9px); }
+}
+
 .home-tanuki:active {
+  animation: none;
   transform: translateX(-50%) translateY(6px) scale(0.97);
 }
 
-/* Poked. The same hop the tanuki does inside a game, so the gesture the child
+/* Poked. The same hop it does inside a toy, so the first gesture a child
  * discovers on the menu is the one that keeps working everywhere. */
 .home-tanuki.is-reacting {
   animation: home-poke 800ms cubic-bezier(0.18, 0.86, 0.3, 1);
 }
 
 @keyframes home-poke {
-  35% {
-    transform: translateX(-50%) translateY(-38px) rotate(-5deg) scale(1.06);
-  }
-  70% {
-    transform: translateX(-50%) translateY(0) scale(0.97, 1.03);
-  }
+  35% { transform: translateX(-50%) translateY(-38px) rotate(-5deg) scale(1.06); }
+  70% { transform: translateX(-50%) translateY(0) scale(0.97, 1.03); }
 }
 
-@keyframes breathe {
-  50% {
-    transform: translateX(-50%) translateY(-9px);
-  }
-}
-
-.mode-shelf {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-}
-
-.shelf-play { grid-area: play; }
-.shelf-learn { grid-area: learn; }
-
-.shelf-title {
-  margin: 0 0 6px 4px;
-  font-size: clamp(11px, 1.5vmin, 16px);
-  font-weight: 900;
-}
-
-.shelf-title span {
-  display: inline-block;
-  padding: 5px 15px 6px;
-  border-radius: 999px;
-  color: var(--leaf-dark);
-  background: rgba(255, 255, 255, 0.76);
-  box-shadow: 0 4px 10px rgba(52, 67, 42, 0.1);
-  letter-spacing: 0.12em;
-}
-
-.home-bubble {
-  position: absolute;
-  bottom: 62%;
-  right: -4%;
-  z-index: 3;
-  padding: 16px 20px;
-  border: 6px solid #ffffff;
-  border-radius: 45% 48% 48% 20%;
-  background: #fff8d9;
-  box-shadow: 0 10px 20px rgba(55, 70, 43, 0.15);
-  color: var(--leaf-dark);
-  font-size: clamp(18px, 2.4vmin, 27px);
-  font-weight: 900;
-  line-height: 1.15;
-  text-align: center;
-  animation: float 1.9s ease-in-out infinite;
-}
-
-.home-bubble::after {
-  content: "";
-  position: absolute;
-  bottom: -20px;
-  left: 17%;
-  border: 15px solid transparent;
-  border-top-color: #ffffff;
-  transform: rotate(18deg);
-}
-
-@keyframes float {
-  50% {
-    transform: translateY(-7px);
-  }
-}
-
-.mode-menu {
-  display: grid;
-  gap: clamp(8px, 1.2vw, 16px);
-  min-width: 0;
-  min-height: 0;
-}
-
-.menu-play {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  grid-template-rows: minmax(0, 1fr);
-}
-
-.menu-learn {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(0, 1fr));
-}
-
-/* Picture on the left, name and hint vertically centred beside it. */
-.mode-card {
+/* --- the four toys ---------------------------------------------------- */
+.toy-card {
   position: relative;
   display: grid;
-  grid-template-columns: 48% 52%;
-  grid-template-rows: minmax(0, 1fr) auto auto minmax(0, 1fr);
+  grid-template-columns: 44% 56%;
   align-items: center;
   min-width: 0;
-  padding: 12px 16px 14px;
+  min-height: 0;
+  padding: 10px 16px 12px 8px;
   overflow: hidden;
   border: 7px solid rgba(255, 255, 255, 0.94);
-  border-radius: clamp(26px, 3vw, 40px);
+  border-radius: clamp(26px, 3vw, 42px);
   background: var(--card-bg);
   box-shadow: 0 12px 0 var(--card-shadow), 0 20px 30px rgba(52, 67, 42, 0.18),
     inset 0 8px 14px rgba(255, 255, 255, 0.26);
   transition: transform 130ms ease, box-shadow 130ms ease;
 }
 
-.mode-card::after {
+.toy-card::after {
   content: "";
   position: absolute;
   top: -43px;
@@ -429,205 +363,87 @@ input:focus-visible {
   border-radius: 50%;
 }
 
-.mode-card:active {
+.toy-card:active {
   transform: translateY(8px) scale(0.985);
   box-shadow: 0 4px 0 var(--card-shadow), 0 11px 18px rgba(52, 67, 42, 0.14);
 }
 
-.mode-card strong {
-  grid-column: 2;
-  grid-row: 2;
-  align-self: end;
-  font-size: clamp(16px, 2.1vmin, 26px);
-  line-height: 1;
-  letter-spacing: 0.02em;
-  text-shadow: 0 3px rgba(255, 255, 255, 0.45);
-  /* Six cards leave no room for a wrapped title. */
-  white-space: nowrap;
-}
-
-.mode-card small {
-  grid-column: 2;
-  grid-row: 3;
-  align-self: start;
-  margin-top: 6px;
-  font-size: clamp(11px, 1.4vmin, 16px);
-  font-weight: 900;
-  opacity: 0.72;
-}
-
-/*
- * The play cards stack their picture over their name. Four of them share a row,
- * and a name like "いないいない ばあ" has no chance of fitting beside a picture
- * at that width — but it reads perfectly underneath one.
- */
-.menu-play .mode-card {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto auto;
-  padding: 10px 10px 12px;
-}
-
-.menu-play .mode-art {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.menu-play .mode-card strong,
-.menu-play .mode-card small {
-  grid-column: 1;
-  justify-self: center;
-  text-align: center;
-  white-space: normal;
-}
-
-.menu-play .mode-card strong {
-  grid-row: 2;
-  align-self: center;
-  font-size: clamp(14px, 1.9vmin, 23px);
+.toy-card strong {
+  position: relative;
+  font-size: clamp(17px, 2.5vmin, 31px);
   line-height: 1.12;
+  letter-spacing: 0.01em;
+  text-shadow: 0 3px rgba(255, 255, 255, 0.45);
 }
 
-.menu-play .mode-card small {
-  grid-row: 3;
-  margin-top: 3px;
-}
+.toy-card-band { --card-bg: linear-gradient(145deg, #dcc6ff, #ab82e2); --card-shadow: #7b56b6; color: #3f2a68; }
+.toy-card-peekaboo { --card-bg: linear-gradient(145deg, #b3ebe4, #5fc3bb); --card-shadow: #33908a; color: #1e5a56; }
+.toy-card-feast { --card-bg: linear-gradient(145deg, #ffcfa4, #f5916c); --card-shadow: #c26246; color: #6f3626; }
+.toy-card-bubble { --card-bg: linear-gradient(145deg, #c6ecff, #79c9ef); --card-shadow: #4e97bf; color: #21506b; }
 
-.mode-band { --card-bg: linear-gradient(145deg, #dcc6ff, #ab82e2); --card-shadow: #7b56b6; color: #3f2a68; }
-.mode-peekaboo { --card-bg: linear-gradient(145deg, #b3ebe4, #5fc3bb); --card-shadow: #33908a; color: #1e5a56; }
-.mode-feast { --card-bg: linear-gradient(145deg, #ffcfa4, #f5916c); --card-shadow: #c26246; color: #6f3626; }
-.mode-bubble { --card-bg: linear-gradient(145deg, #c6ecff, #79c9ef); --card-shadow: #4e97bf; color: #21506b; }
-
-.mode-farm { --card-bg: linear-gradient(145deg, #ffe68a, #f4bb54); --card-shadow: #c58738; }
-.mode-animal { --card-bg: linear-gradient(145deg, #a9dfaa, #6fbc79); --card-shadow: #438851; }
-.mode-hiragana { --card-bg: linear-gradient(145deg, #ffb8b0, #ef7b78); --card-shadow: #b65356; color: #713a3d; }
-.mode-alphabet { --card-bg: linear-gradient(145deg, #b9d9ff, #75aee7); --card-shadow: #4f7fb6; color: #274c74; }
-.mode-hiragana-field { --card-bg: linear-gradient(145deg, #ffd6a8, #f0a05f); --card-shadow: #bd7239; color: #6d4326; }
-.mode-alphabet-field { --card-bg: linear-gradient(145deg, #cdd6ff, #9294e0); --card-shadow: #6467ac; color: #35376f; }
-
-/* Letters growing on a stalk, to say "pull these" before a word is read. */
-.mode-art-crop b,
-.mode-art-crop em {
-  position: absolute;
-  display: grid;
-  place-items: center;
-  width: clamp(42px, 5.6vmin, 74px);
-  height: clamp(42px, 5.6vmin, 74px);
-  border: 5px solid #ffffff;
-  border-radius: 50%;
-  background: rgba(255, 252, 232, 0.95);
-  box-shadow: 0 5px 0 rgba(120, 90, 50, 0.25);
-  color: #55452e;
-  font-size: clamp(20px, 3vmin, 36px);
-  font-style: normal;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.mode-art-crop b { top: 12%; left: 2%; }
-.mode-art-crop em { right: 0; bottom: 14%; }
-
-.mode-art-crop::before {
-  content: "";
-  position: absolute;
-  top: 34%;
-  left: 22%;
-  width: 7%;
-  height: 34%;
-  border-radius: 6px;
-  background: rgba(90, 140, 80, 0.55);
-}
-
-.mode-art {
+.toy-art {
   position: relative;
   display: grid;
-  grid-column: 1;
-  grid-row: 1 / -1;
   place-items: center;
   width: 100%;
   height: 100%;
-  min-height: 110px;
+  min-height: 96px;
 }
 
-.mode-art .sprite {
+.toy-art .sprite {
   position: absolute;
-  width: 80%;
-  height: 80%;
   filter: drop-shadow(0 8px 6px rgba(55, 60, 37, 0.18));
 }
 
-.mode-art .sprite:first-child {
-  top: 2%;
+.toy-art-band .sprite:first-of-type {
+  top: 0;
   left: -6%;
-  transform: rotate(-8deg);
-}
-
-.mode-art .sprite:last-child {
-  right: -6%;
-  bottom: 2%;
-  transform: rotate(8deg);
-}
-
-/* --- artwork for the four play cards --------------------------------- */
-.mode-art .tanuki-sprite {
-  position: absolute;
-  filter: drop-shadow(0 8px 6px rgba(55, 60, 37, 0.18));
-}
-
-.mode-art-band .sprite:first-child,
-.mode-art-band .sprite:last-child {
-  top: 3%;
-  right: auto;
-  bottom: auto;
-  left: 0;
-  width: 58%;
-  height: 58%;
+  width: 72%;
+  height: 72%;
   transform: rotate(-9deg);
 }
 
-.mode-art-band .sprite:last-child {
-  top: auto;
-  right: 0;
-  bottom: 4%;
-  left: auto;
+.toy-art-band .sprite:last-of-type {
+  right: -6%;
+  bottom: 0;
+  width: 72%;
+  height: 72%;
   transform: rotate(9deg);
 }
 
-.mode-art-band b {
+.toy-art-band b {
   position: absolute;
-  top: 0;
-  right: 2%;
+  top: -2%;
+  right: 0;
   color: #ffffff;
-  font-size: clamp(30px, 5vmin, 56px);
+  font-size: clamp(28px, 4.4vmin, 52px);
   font-weight: 900;
   text-shadow: 0 4px rgba(88, 58, 130, 0.3);
   animation: letter-bob 1.7s ease-in-out infinite;
 }
 
-/* Somebody peeking over the edge of a box: the whole game in one picture. */
-.mode-art-peek .sprite:first-child {
-  top: 0;
+/* Somebody peeking over the edge of a box: the whole toy in one picture. */
+.toy-art-peek .sprite {
+  top: -4%;
   left: 50%;
-  width: 74%;
-  height: 74%;
-  margin-left: -37%;
-  transform: none;
+  width: 84%;
+  height: 84%;
+  margin-left: -42%;
   animation: letter-bob 2.1s ease-in-out infinite;
 }
 
-/* The box overlaps the lower third of whoever is in it, which is the whole
- * picture: somebody is in there, and only the top of them shows. */
-.mode-art-peek em {
+.toy-art-peek em {
   position: absolute;
   right: 2%;
-  bottom: 2%;
+  bottom: 6%;
   left: 2%;
-  height: 46%;
+  height: 44%;
   border-radius: 10px 10px 18px 18px;
   background: linear-gradient(#e0b276, #c08a4c);
   box-shadow: inset 0 8px 0 rgba(255, 255, 255, 0.38), 0 6px 0 rgba(112, 76, 38, 0.32);
 }
 
-.mode-art-peek em::before {
+.toy-art-peek em::before {
   content: "";
   position: absolute;
   top: -9%;
@@ -639,24 +455,24 @@ input:focus-visible {
   box-shadow: 0 3px 0 rgba(112, 76, 38, 0.2);
 }
 
-.mode-art-feast .tanuki-sprite {
-  bottom: 0;
+.toy-art-feast .sprite:first-of-type {
+  top: 0;
   left: -6%;
   width: 76%;
   height: 76%;
-}
-
-.mode-art-feast .sprite:last-child {
-  top: 2%;
-  right: -2%;
-  bottom: auto;
-  width: 46%;
-  height: 46%;
-  transform: rotate(12deg);
+  transform: rotate(-8deg);
   animation: letter-bob 1.9s ease-in-out infinite;
 }
 
-.mode-art-bubble b {
+.toy-art-feast .sprite:last-of-type {
+  right: -6%;
+  bottom: 0;
+  width: 64%;
+  height: 64%;
+  transform: rotate(10deg);
+}
+
+.toy-art-bubble b {
   position: absolute;
   border: 4px solid rgba(255, 255, 255, 0.95);
   border-radius: 50%;
@@ -667,36 +483,107 @@ input:focus-visible {
   animation: float 2.3s ease-in-out infinite;
 }
 
-.mode-art-bubble b:first-child { top: 4%; left: 2%; width: 52%; height: 52%; }
-.mode-art-bubble b:nth-child(2) { right: 0; bottom: 12%; width: 40%; height: 40%; animation-delay: 0.4s; }
-.mode-art-bubble b:last-child { bottom: 0; left: 16%; width: 30%; height: 30%; animation-delay: 0.8s; }
+.toy-art-bubble b:first-child { top: 2%; left: 0; width: 54%; height: 54%; }
+.toy-art-bubble b:nth-child(2) { right: 0; bottom: 12%; width: 42%; height: 42%; animation-delay: 0.4s; }
+.toy-art-bubble b:last-child { bottom: 0; left: 14%; width: 30%; height: 30%; animation-delay: 0.8s; }
 
-.mode-art-letter b {
-  color: #ffffff;
-  font-size: clamp(70px, 11vmin, 132px);
-  font-weight: 900;
-  font-style: normal;
-  line-height: 1;
-  text-shadow: 0 7px rgba(130, 66, 66, 0.2);
-  animation: letter-bob 1.9s ease-in-out infinite;
-}
-
-.mode-art-abc b {
-  font-family: ui-rounded, "Arial Rounded MT Bold", sans-serif;
-}
-
-.mode-art-abc i {
-  margin-left: 0.02em;
-  color: #fff8d9;
-  font-size: 0.52em;
-  font-style: normal;
+@keyframes float {
+  50% { transform: translateY(-7px); }
 }
 
 @keyframes letter-bob {
-  50% {
-    transform: translateY(-8px) rotate(3deg);
-  }
+  50% { transform: translateY(-8px) rotate(3deg); }
 }
+
+/* --- the letter games ------------------------------------------------- */
+/*
+ * Deliberately smaller and quieter than the toys. They are still one tap away,
+ * but the screen no longer suggests they are the point.
+ */
+.learn-strip {
+  display: grid;
+  grid-template-rows: auto auto;
+}
+
+.learn-title {
+  margin: 0 0 5px 4px;
+  font-size: clamp(11px, 1.5vmin, 15px);
+  font-weight: 900;
+}
+
+.learn-title span {
+  display: inline-block;
+  padding: 4px 14px 5px;
+  border-radius: 999px;
+  color: var(--leaf-dark);
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 4px 10px rgba(52, 67, 42, 0.1);
+  letter-spacing: 0.12em;
+}
+
+.learn-menu {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: clamp(6px, 1vw, 14px);
+}
+
+.learn-card {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  height: clamp(74px, 10.8vh, 106px);
+  padding: 8px 6px 7px;
+  border: 5px solid rgba(255, 255, 255, 0.92);
+  border-radius: clamp(18px, 2vw, 26px);
+  background: var(--card-bg);
+  box-shadow: 0 7px 0 var(--card-shadow), 0 12px 18px rgba(52, 67, 42, 0.14);
+}
+
+.learn-card:active {
+  transform: translateY(5px);
+  box-shadow: 0 2px 0 var(--card-shadow), 0 7px 11px rgba(52, 67, 42, 0.12);
+}
+
+/* Stretched, not centred: a background-image sprite has no height of its own,
+ * so a centred row collapses to nothing and the picture disappears. */
+.learn-card > span {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  min-height: 0;
+}
+
+.learn-card .sprite {
+  width: 92%;
+  height: 92%;
+  filter: drop-shadow(0 4px 4px rgba(55, 60, 37, 0.2));
+}
+
+.learn-card b {
+  color: #ffffff;
+  font-size: clamp(28px, 5vmin, 52px);
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 4px rgba(120, 70, 60, 0.22);
+}
+
+.learn-card b.is-abc {
+  font-family: ui-rounded, "Arial Rounded MT Bold", sans-serif;
+}
+
+.learn-card small {
+  font-size: clamp(10px, 1.3vmin, 14px);
+  font-weight: 900;
+  opacity: 0.78;
+  white-space: nowrap;
+}
+
+.learn-farm { --card-bg: linear-gradient(145deg, #ffe68a, #f4bb54); --card-shadow: #c58738; }
+.learn-animal { --card-bg: linear-gradient(145deg, #a9dfaa, #6fbc79); --card-shadow: #438851; }
+.learn-hiragana { --card-bg: linear-gradient(145deg, #ffb8b0, #ef7b78); --card-shadow: #b65356; color: #713a3d; }
+.learn-alphabet { --card-bg: linear-gradient(145deg, #b9d9ff, #75aee7); --card-shadow: #4f7fb6; color: #274c74; }
+.learn-hiragana-field { --card-bg: linear-gradient(145deg, #ffd6a8, #f0a05f); --card-shadow: #bd7239; color: #6d4326; }
+.learn-alphabet-field { --card-bg: linear-gradient(145deg, #cdd6ff, #9294e0); --card-shadow: #6467ac; color: #35376f; }
 
 /* -------------------------------------------------------------- play */
 .game-screen {
@@ -1250,15 +1137,122 @@ input:focus-visible {
   color: #343c73;
 }
 
-/* ------------------------------------------------------------ play modes */
+/* ---------------------------------------------------------------- toys */
 /*
- * The four boards that ask for nothing. They share the same three regions as
- * the finding games, so a child who knows where to look in one knows where to
- * look in all ten — only what lives in the middle region changes.
+ * The four toys do not use the ask/play/collect frame. They get the whole
+ * screen, and the arrangement is the same in all of them: the tanuki is the
+ * largest thing on it and always in the same corner, everything else is
+ * something to touch. No bubble, no shelf, no counter, no next button — those
+ * are the furniture of a quiz, and there is no quiz here.
  */
+.toy-stage {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  overflow: hidden;
+}
 
-/* --- the band -------------------------------------------------------- */
-.band-stage {
+.toy-field {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 28%;
+  padding: clamp(8px, 1.6vmin, 20px) calc(14px + env(safe-area-inset-right))
+    calc(18px + env(safe-area-inset-bottom)) 0;
+}
+
+/* A soft pool of light so the tanuki reads as the subject, not the scenery. */
+.toy-floor {
+  position: absolute;
+  bottom: -6%;
+  left: 14%;
+  width: 42vmin;
+  height: 42vmin;
+  margin-left: -21vmin;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 251, 222, 0.4), rgba(255, 251, 222, 0) 68%);
+  pointer-events: none;
+}
+
+.toy-tanuki {
+  position: absolute;
+  bottom: 2%;
+  left: 14%;
+  z-index: 3;
+  width: min(26vw, 48vh, 360px);
+  height: min(26vw, 48vh, 360px);
+  background-position: center bottom;
+  background-size: calc(var(--belly, 1) * 100%) 100%;
+  filter: drop-shadow(0 16px 12px rgba(45, 60, 37, 0.24));
+  transform: translateX(-50%);
+  transition: background-size 460ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  animation: toy-breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes toy-breathe {
+  50% { transform: translateX(-50%) translateY(-8px); }
+}
+
+.toy-tanuki:active {
+  animation: none;
+  transform: translateX(-50%) translateY(8px) scale(0.97);
+}
+
+/*
+ * The dance. The tanuki only exists as still poses, so the choreography is
+ * made by cutting between them on a beat (in app.js) while the body hops here.
+ * Neither half reads as dancing on its own.
+ */
+.toy-tanuki.is-dancing {
+  animation: toy-dance 460ms ease-in-out infinite;
+}
+
+@keyframes toy-dance {
+  0% { transform: translateX(-50%) translateY(0) rotate(-4deg); }
+  50% { transform: translateX(-50%) translateY(-26px) rotate(4deg) scale(1.04); }
+  100% { transform: translateX(-50%) translateY(0) rotate(-4deg); }
+}
+
+.toy-tanuki.is-hopping {
+  animation: toy-hop 620ms cubic-bezier(0.18, 0.86, 0.3, 1);
+}
+
+@keyframes toy-hop {
+  40% { transform: translateX(-50%) translateY(-34px) scale(1.05); }
+  70% { transform: translateX(-50%) translateY(0) scale(0.97, 1.04); }
+}
+
+.toy-tanuki.is-chewing {
+  animation: toy-chew 620ms ease-in-out;
+}
+
+@keyframes toy-chew {
+  20% { transform: translateX(-50%) scale(1.07, 0.93); }
+  45% { transform: translateX(-50%) scale(0.95, 1.06); }
+  70% { transform: translateX(-50%) scale(1.04, 0.97); }
+}
+
+/* A short shower rather than the finish screen's storm: this happens often. */
+.toy-confetti {
+  position: fixed;
+  top: -8vh;
+  z-index: 55;
+  width: 13px;
+  height: 20px;
+  border-radius: 3px;
+  animation: toy-fall 2.2s linear var(--delay, 0s) forwards;
+  pointer-events: none;
+}
+
+@keyframes toy-fall {
+  to { transform: translate(var(--drift, 0px), 118vh) rotate(560deg); }
+}
+
+/* --- おんがくたい ----------------------------------------------------- */
+.band-row {
   position: absolute;
   top: 0;
   right: 0;
@@ -1268,7 +1262,6 @@ input:focus-visible {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: clamp(8px, 1.5vmin, 18px);
-  padding: clamp(4px, 1vmin, 12px);
 }
 
 .band-pad {
@@ -1311,24 +1304,6 @@ input:focus-visible {
   pointer-events: none;
 }
 
-.band-pad.is-hopping .band-ring {
-  animation: band-ring 460ms ease-out;
-}
-
-.band-pad.is-hopping .band-sprite {
-  animation: band-strike 460ms cubic-bezier(0.2, 0.85, 0.3, 1.4);
-}
-
-@keyframes band-ring {
-  from { opacity: 0.85; transform: scale(0.5); }
-  to { opacity: 0; transform: scale(2.3); }
-}
-
-@keyframes band-strike {
-  30% { transform: translateY(-16%) scale(1.12, 0.94); }
-  60% { transform: translateY(4%) scale(0.96, 1.06); }
-}
-
 .band-badge {
   position: absolute;
   top: 6%;
@@ -1341,71 +1316,45 @@ input:focus-visible {
   pointer-events: none;
 }
 
-.band-pad.is-hopping .band-badge {
-  animation: land-pop 460ms cubic-bezier(0.16, 0.88, 0.28, 1.25);
+.band-pad.is-hopping .band-ring { animation: band-ring 460ms ease-out; }
+.band-pad.is-hopping .band-sprite { animation: band-strike 460ms cubic-bezier(0.2, 0.85, 0.3, 1.4); }
+.band-pad.is-hopping .band-badge { animation: land-pop 460ms cubic-bezier(0.16, 0.88, 0.28, 1.25); }
+
+@keyframes band-ring {
+  from { opacity: 0.85; transform: scale(0.5); }
+  to { opacity: 0; transform: scale(2.3); }
 }
 
-/*
- * The tanuki is the target of the feeding, so it gets the room and the question
- * card gives it up. Everywhere else that balance is the other way round.
- */
-.stage-feast .ask-tanuki {
-  width: min(24vw, 32vh, 300px);
-  height: min(24vw, 32vh, 300px);
+@keyframes band-strike {
+  30% { transform: translateY(-16%) scale(1.12, 0.94); }
+  60% { transform: translateY(4%) scale(0.96, 1.06); }
 }
 
-.stage-feast .ask-bubble {
-  width: min(100%, 21vh, 200px);
-  height: min(15vw, 21vh, 200px);
-}
-
-.ask-note {
-  color: var(--coral);
-  font-size: min(17vmin, 160px);
-  font-weight: 900;
-  line-height: 1;
-}
-
-.ask-note.is-pulsing {
-  animation: land-pop 520ms cubic-bezier(0.16, 0.88, 0.28, 1.25);
-}
-
-.collected-note {
-  font-size: min(7.5vmin, 64px);
-  font-weight: 900;
-  line-height: 1;
-  animation: land-pop 520ms cubic-bezier(0.16, 0.88, 0.28, 1.25);
-}
-
-/* --- peekaboo -------------------------------------------------------- */
-/*
- * The whole hiding place is the button, so the target is the size of the
- * picture. The guest lives inside a clipped window above the container's mouth:
- * hidden means genuinely not rendered, which is what makes the reveal land.
- */
-.hideout {
+/* --- いないいないばあ -------------------------------------------------- */
+.peek-field {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
   left: 0;
-  display: block;
-  border-radius: clamp(20px, 3vmin, 36px);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 2px;
 }
 
 /*
- * Something is moving in there. Every hiding place stirs, on its own offset, so
- * the board looks inhabited without ever hinting at which one is worth opening
- * — and on this board none of them is, because they all are.
+ * The whole hiding place is the button. The guest lives in a clipped window
+ * above the container's mouth, so hidden means genuinely not rendered — the
+ * surprise depends on the clip, never on the artwork being opaque, which is
+ * what lets six very different shapes share one reveal.
  */
-.hideout:not(.is-open) .hideout-cover {
-  animation: hideout-stir 3.6s ease-in-out var(--stir-delay, 0s) infinite;
-}
-
-@keyframes hideout-stir {
-  6% { transform: rotate(-1.6deg) translateY(-1.2%); }
-  13% { transform: rotate(1.6deg) translateY(-1.2%); }
-  20% { transform: rotate(0deg) translateY(0); }
+.hideout {
+  position: relative;
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  border-radius: clamp(20px, 3vmin, 36px);
 }
 
 .hideout-box {
@@ -1437,8 +1386,19 @@ input:focus-visible {
   height: 100%;
 }
 
-.hideout.is-open .hideout-cover {
-  transform: translateY(3%) rotate(-1.5deg);
+.hideout.is-open .hideout-cover { transform: translateY(3%) rotate(-1.5deg); }
+
+/* Something is moving in there. Every hiding place stirs, on its own offset,
+ * so the board looks inhabited — and since all of them do, it gives nothing
+ * away, which on this board is not a problem: they are all worth opening. */
+.hideout:not(.is-open) .hideout-cover {
+  animation: hideout-stir 3.6s ease-in-out var(--stir-delay, 0s) infinite;
+}
+
+@keyframes hideout-stir {
+  6% { transform: rotate(-1.6deg) translateY(-1.2%); }
+  13% { transform: rotate(1.6deg) translateY(-1.2%); }
+  20% { transform: rotate(0deg) translateY(0); }
 }
 
 .hideout-window {
@@ -1460,9 +1420,7 @@ input:focus-visible {
   filter: drop-shadow(0 7px 6px rgba(48, 56, 34, 0.22));
 }
 
-.hideout.is-open .hideout-guest {
-  transform: translate(-50%, var(--lip));
-}
+.hideout.is-open .hideout-guest { transform: translate(-50%, var(--lip)); }
 
 .hideout.is-open .hideout-guest.is-hopping {
   animation: guest-hop 560ms cubic-bezier(0.2, 0.85, 0.3, 1.3);
@@ -1472,23 +1430,8 @@ input:focus-visible {
   40% { transform: translate(-50%, calc(var(--lip) - 22%)) rotate(-4deg); }
 }
 
-.ask-peek,
-.ask-shout {
-  color: var(--leaf-dark);
-  font-size: min(7vmin, 58px);
-  font-weight: 900;
-  line-height: 1.14;
-  text-align: center;
-}
-
-.ask-shout {
-  color: var(--coral);
-  font-size: min(9.5vmin, 78px);
-  animation: land-pop 560ms cubic-bezier(0.16, 0.88, 0.28, 1.3);
-}
-
-/* --- the feast ------------------------------------------------------- */
-.feast-mat {
+/* --- ごはん ----------------------------------------------------------- */
+.feast-tray {
   position: absolute;
   top: 0;
   right: 0;
@@ -1501,7 +1444,7 @@ input:focus-visible {
   padding: clamp(6px, 1.4vmin, 16px);
   border: 8px solid rgba(255, 255, 255, 0.7);
   border-radius: clamp(22px, 3vmin, 36px);
-  /* A picnic cloth, so the food is clearly served rather than growing. */
+  /* A picnic cloth, so the food reads as served rather than growing. */
   background:
     repeating-linear-gradient(
       45deg,
@@ -1526,8 +1469,8 @@ input:focus-visible {
   position: absolute;
   top: 58%;
   left: 50%;
-  /* Capped in vmin as well as in per cent: a wide portrait cell would
-   * otherwise stretch the plate into a runway. */
+  /* Capped in vmin as well as in per cent, or a wide cell stretches the plate
+   * into a runway. */
   width: min(84%, 30vmin);
   height: min(50%, 15vmin);
   border: 6px solid rgba(255, 255, 255, 0.95);
@@ -1545,41 +1488,11 @@ input:focus-visible {
   animation: ask-bob 2.4s ease-in-out infinite;
 }
 
-.feast-food:active .feast-sprite {
-  transform: translateY(5px) scale(0.95);
-}
+.feast-food:active .feast-sprite { transform: translateY(5px) scale(0.95); }
+.feast-food.is-eaten .feast-sprite { opacity: 0; animation: none; }
+.feast-food.is-eaten .feast-plate { opacity: 0.45; }
 
-.feast-food.is-eaten .feast-sprite {
-  opacity: 0;
-  animation: none;
-}
-
-.feast-food.is-eaten .feast-plate {
-  opacity: 0.45;
-}
-
-/*
- * Six mouthfuls make a visibly rounder tanuki. Stretching the background image
- * rather than transforming the element means the belly survives every hop and
- * wobble the same element is also doing.
- */
-.stage-feast .ask-tanuki {
-  background-position: center bottom;
-  background-size: calc(var(--belly, 1) * 100%) 100%;
-  transition: background-size 460ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
-}
-
-.ask-tanuki.is-chewing {
-  animation: tanuki-chew 620ms ease-in-out;
-}
-
-@keyframes tanuki-chew {
-  20% { transform: scale(1.07, 0.93); }
-  45% { transform: scale(0.95, 1.06); }
-  70% { transform: scale(1.04, 0.97); }
-}
-
-/* --- bubbles --------------------------------------------------------- */
+/* --- しゃぼんだま ----------------------------------------------------- */
 .bubble-sky {
   position: absolute;
   top: 0;
@@ -1590,7 +1503,8 @@ input:focus-visible {
 
 .bubble {
   position: absolute;
-  /* Centred by margin, not by transform: see renderBubbleRound. */
+  /* Centred by margin, not by transform: the drift, the pop and the wobble
+   * each need `transform` to themselves. */
   border-radius: 50%;
   background:
     radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.95) 0 8%, rgba(255, 255, 255, 0) 42%),
@@ -1640,9 +1554,7 @@ input:focus-visible {
   animation: bubble-pop 340ms ease-out forwards;
 }
 
-.bubble.is-popped .bubble-spark {
-  animation: band-ring 340ms ease-out forwards;
-}
+.bubble.is-popped .bubble-spark { animation: band-ring 340ms ease-out forwards; }
 
 @keyframes bubble-pop {
   0% { opacity: 0.86; transform: scale(1); }
@@ -1650,28 +1562,7 @@ input:focus-visible {
   100% { opacity: 0; transform: scale(0.35); }
 }
 
-.collected-bubble {
-  display: block;
-  width: 60%;
-  height: 60%;
-  border-radius: 50%;
-  box-shadow: inset 0 -6px 12px rgba(255, 255, 255, 0.6), 0 4px 8px rgba(52, 67, 42, 0.16);
-  animation: land-pop 520ms cubic-bezier(0.16, 0.88, 0.28, 1.25);
-}
-
-/* A collected friend: the tanuki is not a `.sprite`, so it needs its own size. */
-.collect-slot .tanuki-sprite {
-  width: 88%;
-  height: 88%;
-  filter: drop-shadow(0 5px 4px rgba(67, 51, 31, 0.2));
-  animation: land-pop 520ms cubic-bezier(0.16, 0.88, 0.28, 1.25);
-}
-
-/* --- shared play-mode effects ---------------------------------------- */
-/*
- * A word or a note drifting off a character. It is deliberately not spoken:
- * there is one voice, and it is busy naming the thing the child just touched.
- */
+/* --- shared ----------------------------------------------------------- */
 .float-word {
   position: fixed;
   z-index: 60;
@@ -2247,22 +2138,6 @@ input:focus-visible {
   filter: drop-shadow(0 9px 7px rgba(52, 61, 38, 0.2));
 }
 
-/* The play modes put a friend, a note or a bubble on the shelf too. */
-.finish-result .tanuki-sprite {
-  width: 88%;
-  height: 88%;
-  filter: drop-shadow(0 9px 7px rgba(52, 61, 38, 0.2));
-}
-
-.finish-result .collected-note {
-  font-size: min(12vmin, 96px);
-}
-
-.finish-result .collected-bubble {
-  width: 72%;
-  height: 72%;
-}
-
 .finish-result .collected-letter {
   display: grid;
   place-items: center;
@@ -2581,81 +2456,47 @@ input:focus-visible {
   .logo-lockup h1 { font-size: clamp(17px, 3.6vw, 26px); }
   .icon-button { width: 62px; height: 62px; }
 
-  /* Stacked: the tanuki greets, then the toys, then the finding games. */
+  /* Stacked: the tanuki on top, its toys under it, the letter games last. */
   .home-body {
     top: 94px;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 0.62fr) minmax(0, 1fr) minmax(0, 1.42fr);
-    grid-template-areas: "guide" "play" "learn";
-    gap: 8px;
+    gap: 10px;
+  }
+
+  .toy-menu {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: minmax(0, 0.92fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .home-star {
+    grid-column: 1 / -1;
+    grid-row: 1;
   }
 
   .home-tanuki {
-    left: 32%;
-    width: min(21vh, 40vw, 220px);
-    height: min(21vh, 40vw, 220px);
+    width: min(46vw, 25vh, 300px);
+    height: min(46vw, 25vh, 300px);
   }
 
-  .home-bubble {
-    top: 16%;
-    right: auto;
-    bottom: auto;
-    left: 54%;
-    padding: 11px 15px;
-    font-size: 19px;
-  }
+  /* The tanuki is the third child, so the cards have to be placed by hand. */
+  .toy-menu .toy-card:nth-child(1) { grid-column: 1; grid-row: 2; }
+  .toy-menu .toy-card:nth-child(2) { grid-column: 2; grid-row: 2; }
+  .toy-menu .toy-card:nth-child(4) { grid-column: 1; grid-row: 3; }
+  .toy-menu .toy-card:nth-child(5) { grid-column: 2; grid-row: 3; }
 
-  .shelf-title { margin-bottom: 4px; font-size: 12px; }
-  .shelf-title span { padding: 4px 12px 5px; }
-
-  .menu-play {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: repeat(2, minmax(0, 1fr));
-    gap: 9px;
-  }
-
-  .menu-learn {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: repeat(3, minmax(0, 1fr));
-    gap: 9px;
-  }
-
-  /* Wide enough in portrait to put the picture back beside the name. */
-  .menu-play .mode-card {
-    grid-template-columns: 40% 60%;
-    grid-template-rows: minmax(0, 1fr) auto auto minmax(0, 1fr);
-  }
-
-  .menu-play .mode-art {
-    grid-row: 1 / -1;
-  }
-
-  .menu-play .mode-card strong {
-    grid-column: 2;
-    grid-row: 2;
-    align-self: end;
-    justify-self: start;
-    text-align: left;
-    font-size: clamp(14px, 3.4vw, 23px);
-  }
-
-  .menu-play .mode-card small {
-    grid-column: 2;
-    grid-row: 3;
-    justify-self: start;
-    text-align: left;
-  }
-
-  .mode-card {
-    grid-template-columns: 43% 57%;
-    padding: 8px 10px 11px;
+  .toy-card {
+    grid-template-columns: 42% 58%;
+    padding: 8px 10px 10px 6px;
     border-width: 6px;
   }
 
-  .mode-card strong { font-size: clamp(15px, 3.6vw, 24px); }
-  .mode-card small { font-size: 10px; }
-  .mode-art { min-height: 70px; }
-  .mode-art-letter b { font-size: clamp(62px, 16vw, 105px); }
+  .toy-card strong { font-size: clamp(15px, 3.4vw, 24px); }
+  .toy-art { min-height: 74px; }
+
+  .learn-title { margin-bottom: 4px; font-size: 12px; }
+  .learn-title span { padding: 4px 12px 5px; }
+  .learn-menu { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .learn-card { height: clamp(72px, 9vh, 104px); }
 
   .game-hud .icon-button { width: 56px; height: 56px; }
   .mode-pill { min-height: 56px; padding: 5px 14px 5px 6px; }
@@ -2710,26 +2551,44 @@ input:focus-visible {
     height: 88%;
   }
 
-  .stage-feast .ask-tanuki {
-    width: clamp(120px, 19vh, 190px);
-    height: clamp(120px, 19vh, 190px);
-  }
-
-  .stage-feast .ask-bubble {
-    width: clamp(112px, 17vh, 180px);
-    height: 100%;
-  }
-
-  .ask-peek { font-size: min(5.2vmin, 42px); }
-  .ask-shout { font-size: min(6.4vmin, 54px); }
-  .ask-note { font-size: min(13vh, 110px); }
-
   .ask-letter { font-size: min(13vh, 110px); }
   .ask-speaker { right: -10px; bottom: -10px; width: 54px; height: 54px; font-size: 24px; }
 
-  .farm-field,
-  .band-stage,
-  .feast-mat {
+  .farm-field {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+  }
+
+  /*
+   * Portrait puts the tanuki along the bottom instead of down the side, so the
+   * things to touch always sit above it and food always falls downwards into
+   * its mouth — the same relationship, turned through ninety degrees.
+   */
+  .toy-field {
+    bottom: 25%;
+    left: 0;
+    padding: calc(4px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) 0
+      calc(8px + env(safe-area-inset-left));
+  }
+
+  .toy-tanuki {
+    bottom: 1%;
+    left: 50%;
+    width: min(40vw, 23vh, 300px);
+    height: min(40vw, 23vh, 300px);
+  }
+
+  .toy-floor {
+    bottom: -10%;
+    left: 50%;
+    width: 54vmin;
+    height: 54vmin;
+    margin-left: -27vmin;
+  }
+
+  .band-row,
+  .peek-field,
+  .feast-tray {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: repeat(3, minmax(0, 1fr));
   }
@@ -2804,9 +2663,10 @@ input:focus-visible {
 
   .home-body { top: 86px; }
   .home-header { padding-top: 8px; }
-  .shelf-title { margin-bottom: 3px; font-size: 11px; }
-  .shelf-title span { padding: 3px 11px 4px; }
-  .menu-play .mode-card strong { font-size: clamp(13px, 1.8vmin, 19px); }
+  .learn-title { margin-bottom: 3px; font-size: 11px; }
+  .learn-title span { padding: 3px 11px 4px; }
+  .learn-card { height: clamp(76px, 15vh, 104px); }
+  .toy-card strong { font-size: clamp(15px, 2.2vmin, 25px); }
   .icon-button { width: 58px; height: 58px; }
   .ask-tanuki { width: min(17vmin, 150px); height: min(17vmin, 150px); }
   .collect-bar { height: clamp(64px, 12vmin, 100px); }

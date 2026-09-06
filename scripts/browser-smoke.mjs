@@ -119,18 +119,10 @@ const TAP_SELECTOR = {
   "alphabet-field": (id) => `.letter-crop[data-item="${id}"]`,
 };
 
-const ACTIVITIES = [
-  "band",
-  "peekaboo",
-  "feast",
-  "bubble",
-  "farm",
-  "animal",
-  "hiragana",
-  "alphabet",
-  "hiragana-field",
-  "alphabet-field",
-];
+/* Toys have no rounds and no end, so they are driven and checked differently. */
+const TOYS = ["band", "peekaboo", "feast", "bubble"];
+const GAMES = ["farm", "animal", "hiragana", "alphabet", "hiragana-field", "alphabet-field"];
+const ACTIVITIES = TOYS.concat(GAMES);
 
 /* Modes where taking something means dragging it off its plant. */
 const PULL_ACTIVITIES = ["farm", "hiragana-field", "alphabet-field"];
@@ -274,7 +266,7 @@ async function checkPullCues(activity) {
 async function checkTapTargets(activity) {
   const play = await smallestSide(
     ".produce, .letter-crop, .choice-card, .letter-cell, .band-pad, .hideout, .feast-food,"
-    + " .bubble, .ask-bubble, .ask-tanuki, .next-round-button",
+    + " .bubble, .ask-bubble, .ask-tanuki, .toy-tanuki, .next-round-button",
   );
   if (!play.count) throw new Error(`${activity}: no tappable play targets found`);
   if (play.min < PLAY_TARGET_MINIMUM) {
@@ -296,6 +288,8 @@ async function checkAskFits(where) {
   const report = await evaluate(`(() => {
     const bubble = document.querySelector(".ask-bubble");
     const body = document.querySelector(".ask-bubble-body");
+    /* A toy has no ask bubble at all, which is the point of it. */
+    if (!bubble && !body) return { none: true };
     if (!bubble || !body) return { missing: true };
     const outer = bubble.getBoundingClientRect();
     const children = [...body.children];
@@ -315,6 +309,7 @@ async function checkAskFits(where) {
     }
     return { ok: children.length };
   })()`);
+  if (report.none) return;
   if (report.missing) throw new Error(`${where}: no ask bubble on the board`);
   if (!report.ok && !report.empty) {
     throw new Error(`${where}: ask bubble content overflows ${JSON.stringify(report)}`);
@@ -330,8 +325,8 @@ async function checkAskFits(where) {
  */
 const UNIFORM_SELECTOR = {
   band: ".band-pad",
-  peekaboo: ".hideout",
   feast: ".feast-food",
+  peekaboo: ".hideout",
   animal: ".choice-card",
   hiragana: ".letter-cell",
   alphabet: ".letter-cell",
@@ -451,6 +446,69 @@ async function playRound(activity, roundIndex) {
   }
 }
 
+/*
+ * A toy cannot be "completed", so completion is not what is checked. What is
+ * checked is the promise the toys actually make: that they never stop
+ * answering. Every touch has to register, an already-used thing has to answer
+ * a second touch, the tanuki has to answer anywhere, and no round-complete
+ * gate may ever appear — a toy that puts up a "next" button has turned back
+ * into a quiz.
+ */
+async function playToy(activity) {
+  await tap(`[data-mode="${activity}"]`);
+  await waitUntil(`document.querySelector("#app").dataset.screen === "game"`, `${activity} to open`);
+  await waitUntil('!!document.querySelector(".toy-stage")', `${activity} stage to appear`);
+  await wait(500);
+  const smallest = await checkTapTargets(activity);
+  await checkAskFits(activity);
+  await checkUniformBoard(activity);
+  await checkNoOverflow(activity);
+  await shot(activity);
+
+  for (let touch = 0; touch < 14; touch += 1) {
+    /* Read the board fresh every time: a popped bubble is replaced by a new
+     * one with a new id, so a snapshot of ids would go stale. */
+    const id = await evaluate(`(() => {
+      const node = document.querySelector("[data-item]:not(.is-popped)");
+      return node ? node.getAttribute("data-item") : null;
+    })()`);
+    if (!id) throw new Error(`${activity}: the board ran out of things to touch`);
+    const before = await evaluate("window.__ponpoko.state.playTaps");
+    await tap(`[data-item="${id}"]`);
+    await wait(150);
+    const after = await evaluate("window.__ponpoko.state.playTaps");
+    if (after <= before) throw new Error(`${activity}: touching ${id} did nothing`);
+  }
+
+  /*
+   * The promise is not that a burst of taps can never outrun the refill — it is
+   * that the board always comes back. So give it a moment and then require it
+   * to be whole again, minus at most one still in flight.
+   */
+  await wait(1400);
+  const left = await evaluate('document.querySelectorAll("[data-item]:not(.is-popped)").length');
+  if (left < 5) throw new Error(`${activity}: the board did not refill (${left} left)`);
+
+  const beforePoke = await evaluate("window.__ponpoko.state.playTaps");
+  await tap(".toy-tanuki");
+  await wait(200);
+  if ((await evaluate("window.__ponpoko.state.playTaps")) <= beforePoke) {
+    throw new Error(`${activity}: the tanuki did not answer a poke`);
+  }
+
+  if (!(await evaluate('document.querySelector("#round-complete").hidden'))) {
+    throw new Error(`${activity}: a toy put up a round-complete gate`);
+  }
+  if ((await evaluate('document.querySelector("#app").dataset.screen')) !== "game") {
+    throw new Error(`${activity}: a toy ended on its own`);
+  }
+  await shot(`${activity}-played`);
+  await checkNoOverflow(`${activity} after play`);
+  await tap("#game-home-button");
+  await wait(300);
+  return smallest;
+}
+
 async function playActivity(activity) {
   await tap(`[data-mode="${activity}"]`);
   await waitUntil(`document.querySelector("#app").dataset.screen === "game"`, `${activity} to open`);
@@ -528,7 +586,10 @@ await checkNoOverflow("home");
 await shot("home");
 
 const sizes = {};
-for (const activity of ACTIVITIES) {
+for (const activity of TOYS) {
+  sizes[activity] = Math.round(await playToy(activity));
+}
+for (const activity of GAMES) {
   sizes[activity] = Math.round(await playActivity(activity));
 }
 
@@ -553,7 +614,8 @@ await tap('[data-gate="5"]');
 if ((await evaluate('document.querySelector("#parent-settings").hidden')) !== false) {
   throw new Error("Parent settings did not unlock");
 }
-if ((await evaluate('document.querySelector("#session-count").textContent')) !== "10回") {
+/* Only the finding games finish, so only they are counted. */
+if ((await evaluate('document.querySelector("#session-count").textContent')) !== "6回") {
   throw new Error("Completed sessions were not persisted");
 }
 await tap("#overlay-close");
@@ -572,7 +634,27 @@ await waitUntil("window.__ponpokoBooted === true", "the app to reboot with reduc
 if (!(await evaluate("window.__ponpoko.state.settings.reduceMotion"))) {
   throw new Error("Reduced motion setting did not load");
 }
-for (const activity of ACTIVITIES) {
+for (const activity of TOYS) {
+  await tap(`[data-mode="${activity}"]`);
+  await waitUntil('!!document.querySelector(".toy-stage")', `${activity} with reduced motion`);
+  for (let touch = 0; touch < 8; touch += 1) {
+    const id = await evaluate(`(() => {
+      const node = document.querySelector("[data-item]:not(.is-popped)");
+      return node ? node.getAttribute("data-item") : null;
+    })()`);
+    if (!id) throw new Error(`${activity} (reduced motion): nothing left to touch`);
+    const before = await evaluate("window.__ponpoko.state.playTaps");
+    await tap(`[data-item="${id}"]`);
+    await wait(120);
+    if ((await evaluate("window.__ponpoko.state.playTaps")) <= before) {
+      throw new Error(`${activity} (reduced motion): touching ${id} did nothing`);
+    }
+  }
+  await tap("#game-home-button");
+  await wait(200);
+}
+
+for (const activity of GAMES) {
   await tap(`[data-mode="${activity}"]`);
   await waitUntil("!!window.__ponpoko.state.quest", `${activity} quest with reduced motion`);
   const total = await evaluate("window.__ponpoko.state.round.items ? window.__ponpoko.state.round.items.length : (window.__ponpoko.state.round.steps ? window.__ponpoko.state.round.steps.length : window.__ponpoko.state.round.targets.length)");

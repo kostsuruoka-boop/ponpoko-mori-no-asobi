@@ -23,18 +23,27 @@ import {
   HIRAGANA,
   PRAISE,
   ROUNDS_PER_ACTIVITY,
+  TOY_LINES,
   YUM,
 } from "./content.js";
 import {
   advanceCurriculum,
   advanceRound,
   animalById,
+  CHEER_EVERY,
   createSession,
+  dealBand,
+  dealBubbles,
+  dealFeast,
+  dealPeekaboo,
   hintStage,
   isLetterField,
   isPlayActivity,
   literacyCatalog,
   loadSavedState,
+  makeBubble,
+  nextCourse,
+  nextGuest,
   normalizeActivity,
   targetsPerRound,
 } from "./game-core.js";
@@ -123,10 +132,14 @@ const state = {
   praiseIndex: 0,
   /* Set by a play mode that wants a flourish the moment its board fills, and
    * cleared with the rest of the scene. */
-  roundFinale: null,
   playTaps: 0,
   yumIndex: 0,
-  flashToken: 0,
+  /* Toy state. None of it is progress: it is just what is on screen. */
+  danceToken: 0,
+  lineIndex: 0,
+  lastToyTouch: 0,
+  belly: 0,
+  bubbleSerial: 0,
 };
 
 const dom = {};
@@ -216,8 +229,7 @@ function clearRuntime() {
   }
   state.quest = null;
   state.busy = false;
-  state.roundFinale = null;
-  state.playTaps = 0;
+  state.danceToken += 1;
   hideHand();
   clear(dom.fx);
   dom.roundComplete.hidden = true;
@@ -491,7 +503,7 @@ function wiggle(node) {
 }
 
 function tanukiReact(pose, duration) {
-  const tanuki = dom.stage.querySelector(".ask-tanuki");
+  const tanuki = tanukiNode();
   if (!tanuki) return;
   const base = ACTIVITY_META[state.activity].pose;
   setPose(tanuki, pose);
@@ -512,7 +524,7 @@ function tanukiReact(pose, duration) {
  * is the difference between a game that stalls and one that never can.
  */
 function pokeTanuki(node) {
-  const tanuki = node || dom.stage.querySelector(".ask-tanuki");
+  const tanuki = node || tanukiNode();
   if (!tanuki) return;
   audio.note(BAND_TANUKI.frequency, BAND_TANUKI.voice);
   tanukiReact("jump", 780);
@@ -528,6 +540,36 @@ function setPose(node, pose) {
   });
   classes.push("pose-" + pose);
   node.className = classes.join(" ");
+}
+
+function hop(node, duration) {
+  if (!node) return;
+  node.classList.remove("is-hopping");
+  void node.offsetWidth;
+  node.classList.add("is-hopping");
+  schedule(function () {
+    node.classList.remove("is-hopping");
+  }, duration || 560);
+}
+
+/*
+ * A word that drifts up off a character. Deliberately not spoken: there is one
+ * voice, and it is busy naming the thing the child just touched.
+ */
+function floatWord(node, text, className) {
+  if (state.settings.reduceMotion || !node) return;
+  const rect = node.getBoundingClientRect();
+  if (!rect.width) return;
+  const word = el("i", "float-word " + (className || ""), text);
+  word.style.left = rect.left + rect.width / 2 + "px";
+  /* Launched from the shoulder, so a wide word never sits across the face of
+   * whoever just said it. */
+  word.style.top = rect.top + rect.height * 0.3 + "px";
+  word.style.setProperty("--dx", Math.round(Math.random() * 44 - 22) + "px");
+  dom.fx.appendChild(word);
+  schedule(function () {
+    if (word.parentNode) word.parentNode.removeChild(word);
+  }, 1400);
 }
 
 function burst(node, color, amount) {
@@ -1165,119 +1207,180 @@ function showWordReward(target, onFinish) {
   }, motion(40, 700));
 }
 
-/* ------------------------------------------------------------ play modes */
+/* ---------------------------------------------------------------- toys */
 /*
- * Four boards that ask for nothing.
+ * A toy is not a game.
  *
- * The finding games refuse input while an answer plays out, because a second
- * tap there would be scored against a question that has already been answered.
- * Here that same guard would be the bug: a toddler drums on the glass with a
- * whole hand, and every one of those touches has to make a sound. So nothing in
- * this section sets `state.busy`, every element owns its own animation, and a
- * round advances by counting what the child did rather than by clearing a queue
- * of questions.
+ * These four have no request, no answer, no round, no score and no end. The
+ * child plays until an adult takes the iPad away. That is why they do not use
+ * the ask/play/collect frame the finding games share: a speech bubble with
+ * nothing to ask, a shelf counting to six and a "next" button are the
+ * furniture of a quiz, and putting a toy inside them made it feel like one.
+ *
+ * What replaces all of it is a single arrangement, the same in all four: the
+ * tanuki is the biggest thing on screen and always in the same place, and
+ * everything else is something to touch. Nothing here can be finished, so
+ * nothing here can be failed.
  */
 
-/* A free quest exists only to carry the idle guidance; it has no answer. */
-function startFreePlay(findTarget, announce) {
-  startQuest({
-    targetId: null,
-    free: true,
-    announce: announce || function () {},
-    findTarget: findTarget,
-    onCorrect: function () {},
-    onWrong: function () {},
+const TOY_BEAT = 460;
+const TOY_IDLE = 7000;
+/* The tanuki only has still poses, so the dance is made by cutting between
+ * them on a beat while the body hops. Five reads as choreography; two reads as
+ * a glitch. */
+const DANCE_POSES = ["jump", "wave", "reach", "run", "push", "basket"];
+
+/*
+ * Toys speak English. It is not a language lesson — the words are there because
+ * a sound with a shape is funnier than a sound without one — and the English
+ * voices on the device are markedly more natural than the Japanese ones.
+ */
+function toySpeak(text) {
+  if (!text) return;
+  audio.speak(text, "en-US", { rate: 0.86 });
+}
+
+function toyCycle(list) {
+  state.lineIndex = (state.lineIndex + 1) % list.length;
+  return list[state.lineIndex];
+}
+
+function tanukiNode() {
+  return dom.stage.querySelector(".toy-tanuki") || dom.stage.querySelector(".ask-tanuki");
+}
+
+function buildToyStage(activity) {
+  clear(dom.stage);
+  const stage = el("div", "toy-stage toy-" + activity);
+  const field = el("div", "toy-field");
+  const tanuki = el("button", "toy-tanuki tanuki-sprite pose-" + ACTIVITY_META[activity].pose);
+  tanuki.type = "button";
+  tanuki.setAttribute("aria-label", "たぬきを つつく");
+  const floor = el("div", "toy-floor");
+
+  stage.appendChild(floor);
+  stage.appendChild(field);
+  stage.appendChild(tanuki);
+  dom.stage.appendChild(stage);
+
+  on(tanuki, "click", function () {
+    pokeTanuki(tanuki);
+    danceTanuki(3);
   });
+  return { stage: stage, field: field, tanuki: tanuki };
 }
 
 /*
- * Count one thing done. Returns the collect slot it claimed, or -1 when the
- * board is already full: two fingers landing together must not overrun the
- * shelf or schedule the celebration twice.
+ * Dance for a number of beats. A later call simply takes over — a child hitting
+ * the drum ten times in a row should get ten beats of dancing, not ten dances
+ * fighting each other for the same element.
  */
-function playStep() {
-  const total = targetsPerRound(state.activity);
-  if (state.solved >= total) return -1;
-  const slotIndex = state.solved;
-  state.solved += 1;
-  state.stepIndex += 1;
-  if (state.solved >= total) {
-    if (state.roundFinale) state.roundFinale();
-    /* Long enough for the last thing touched to finish its own reaction before
-     * the board freezes for the celebration. */
-    schedule(completeRound, motion(160, 1000));
+function danceTanuki(beats) {
+  const node = tanukiNode();
+  if (!node) return;
+  state.danceToken += 1;
+  const token = state.danceToken;
+  const base = ACTIVITY_META[state.activity].pose;
+  if (state.settings.reduceMotion) {
+    setPose(node, "jump");
+    schedule(function () {
+      if (token === state.danceToken) setPose(node, base);
+    }, 200);
+    return;
   }
-  return slotIndex;
+  node.classList.add("is-dancing");
+  let beat = 0;
+  const step = function () {
+    if (token !== state.danceToken) return;
+    beat += 1;
+    if (beat > beats) {
+      node.classList.remove("is-dancing");
+      setPose(node, base);
+      return;
+    }
+    setPose(node, DANCE_POSES[beat % DANCE_POSES.length]);
+    schedule(step, TOY_BEAT);
+  };
+  step();
 }
 
-function askBody() {
-  return dom.stage.querySelector(".ask-bubble-body");
-}
-
-/* How many are left, as a number a child who cannot read still sees shrink. */
-function showRemaining() {
-  const body = askBody();
-  if (!body) return;
-  body.innerHTML = '<span class="ask-basket">'
-    + (targetsPerRound(state.activity) - state.solved) + "</span>";
-}
-
-/* Put a word in the bubble for a moment, then hand it back to whatever was
- * there. Used for the punchline of a peekaboo. */
-function flashAsk(text, restore) {
-  const body = askBody();
-  if (!body) return;
-  body.innerHTML = '<span class="ask-shout">' + text + "</span>";
-  /* A second reveal arriving mid-flash owns the bubble now: only the newest
-   * shout is allowed to put the waiting line back. */
-  state.flashToken += 1;
-  const token = state.flashToken;
-  schedule(function () {
-    if (token === state.flashToken && askBody() === body) restore();
-  }, motion(200, 1300));
-}
-
-function hop(node, duration) {
+function hopTanuki() {
+  const node = tanukiNode();
   if (!node) return;
   node.classList.remove("is-hopping");
   void node.offsetWidth;
   node.classList.add("is-hopping");
   schedule(function () {
     node.classList.remove("is-hopping");
-  }, duration || 560);
+  }, 620);
 }
 
-/* A word that drifts up off a character: visible fun that never interrupts the
- * one voice, which is busy naming the thing the child just touched. */
-function floatWord(node, text, className) {
-  if (state.settings.reduceMotion || !node) return;
-  const rect = node.getBoundingClientRect();
-  if (!rect.width) return;
-  const word = el("i", "float-word " + (className || ""), text);
-  word.style.left = rect.left + rect.width / 2 + "px";
-  /* Launched from the shoulder rather than the middle, so a wide word never
-   * sits across the face of whoever just said it. */
-  word.style.top = rect.top + rect.height * 0.3 + "px";
-  word.style.setProperty("--dx", Math.round(Math.random() * 44 - 22) + "px");
-  dom.fx.appendChild(word);
-  schedule(function () {
-    if (word.parentNode) word.parentNode.removeChild(word);
-  }, 1400);
-}
-
-/* ------------------------------------------------------------- the band */
 /*
- * Six friends, each with one pitch of a pentatonic scale and its own voice. The
- * pads are never used up: hitting the same drum thirty times is a perfectly
- * good way to spend a round, and the board counts the playing rather than the
- * pads. Sound is fired on `pointerdown`, not on click, because an instrument
- * that waits for the finger to lift does not feel like an instrument.
+ * Every touch on a toy goes through here. It keeps the idle attractor honest
+ * and, every so often, lets the whole thing boil over into a celebration —
+ * which gates nothing, because there is nothing to gate.
  */
-function renderBandRound() {
-  const parts = buildStageFrame("stage-band");
-  const stage = el("div", "band-stage");
+function toyTouched() {
+  state.lastToyTouch = Date.now();
+  state.playTaps += 1;
+  if (state.playTaps % CHEER_EVERY === 0) cheer();
+}
 
-  state.round.items.forEach(function (member) {
+function cheer() {
+  audio.play("fanfare");
+  toySpeak(toyCycle(TOY_LINES.yay));
+  danceTanuki(6);
+  const node = tanukiNode();
+  burst(node, "#f7d35b", 18);
+  toyConfetti();
+}
+
+/* A short shower, not the full finish-screen storm: it happens often. */
+function toyConfetti() {
+  if (state.settings.reduceMotion) return;
+  const colors = ["#ef7065", "#f6cc4f", "#65bde1", "#74b97a", "#9b70cf"];
+  for (let index = 0; index < 18; index += 1) {
+    const piece = el("i", "toy-confetti");
+    piece.style.left = Math.random() * 100 + "vw";
+    piece.style.background = colors[index % colors.length];
+    piece.style.setProperty("--delay", Math.random() * 0.5 + "s");
+    piece.style.setProperty("--drift", -60 + Math.random() * 120 + "px");
+    dom.fx.appendChild(piece);
+    schedule(function () {
+      if (piece.parentNode) piece.parentNode.removeChild(piece);
+    }, 2400);
+  }
+}
+
+/*
+ * If nothing has been touched for a while, the tanuki hops and one of the
+ * things on the board wobbles. No pointing hand and no glow: on a board where
+ * everything works, singling one thing out would be a lie.
+ */
+function startToyIdle(getObjects) {
+  state.lastToyTouch = Date.now();
+  const lifecycle = state.lifecycle;
+  state.hintTicker = window.setInterval(function () {
+    if (lifecycle !== state.lifecycle) return;
+    if (Date.now() - state.lastToyTouch < TOY_IDLE) return;
+    state.lastToyTouch = Date.now();
+    hopTanuki();
+    const nodes = getObjects();
+    if (nodes.length) wiggle(nodes[Math.floor(Math.random() * nodes.length)]);
+  }, 1000);
+}
+
+/* --------------------------------------------------------- おんがくたい */
+/*
+ * Six friends who each own one pitch of a pentatonic scale, so no order of
+ * taps is sour and hitting all six at once is a chord. Nothing is counted and
+ * nothing is used up: playing the same drum thirty times is the point.
+ */
+function renderBand() {
+  const parts = buildToyStage("band");
+  const row = el("div", "band-row");
+
+  dealBand(Math.random).forEach(function (member) {
     const pad = el("button", "band-pad");
     pad.type = "button";
     pad.setAttribute("data-item", member.id);
@@ -1285,224 +1388,249 @@ function renderBandRound() {
     pad.style.setProperty("--pad-color", member.color);
     pad.innerHTML = '<i class="band-ring"></i>' + spriteMarkup(member.animal, "band-sprite")
       + '<b class="band-badge">♪</b>';
-    stage.appendChild(pad);
+    row.appendChild(pad);
+    /* Sound on the finger landing, not on it lifting: an instrument that waits
+     * for the release does not feel like an instrument. */
     on(pad, "pointerdown", function () {
       strikeBand(pad, member);
     });
   });
 
-  parts.play.appendChild(stage);
-  buildCollectSlots(parts.collect, targetsPerRound("band"));
-  state.roundFinale = bandFinale;
-  startFreePlay(
-    function () {
-      return dom.stage.querySelector(".band-pad");
-    },
-    function (manual) {
-      if (manual) audio.note(BAND_TANUKI.frequency, BAND_TANUKI.voice);
-    },
-  );
-  const body = askBody();
-  if (body) body.innerHTML = '<span class="ask-note">♪</span>';
+  parts.field.appendChild(row);
+  startToyIdle(function () {
+    return dom.stage.querySelectorAll(".band-pad");
+  });
+  danceTanuki(3);
 }
 
 function strikeBand(pad, member) {
-  const animal = animalById(member.animal);
   audio.note(member.frequency, member.voice);
-  markInteraction();
   hop(pad, 460);
   floatWord(pad, "♪", "is-note");
-  pulse(dom.stage.querySelector(".ask-note"));
-  tanukiReact("jump", 560);
-  state.playTaps += 1;
-  /* The animals only speak now and then. Every tap would bury the music under
-   * a voice, and the music is the reason to be here. */
-  if (animal && state.playTaps % BAND_SPEAKS_EVERY === 0) {
-    audio.speak(animal.cry || animal.label, "ja-JP");
-  }
-  const slotIndex = playStep();
-  if (slotIndex < 0) return;
-  fillCollectSlot(
-    slotIndex,
-    '<span class="collected-note" style="color:' + member.color + '">♪</span>',
-  );
+  danceTanuki(3);
+  toyTouched();
 }
 
-/* The whole band takes a bow: one pass along the row, left to right. */
-function bandFinale() {
-  const pads = dom.stage.querySelectorAll(".band-pad");
-  state.round.items.forEach(function (member, index) {
-    schedule(function () {
-      audio.note(member.frequency, member.voice);
-      hop(pads[index], 460);
-    }, motion(20, 120) * index);
-  });
-}
-
-/* -------------------------------------------------------------- peekaboo */
+/* ------------------------------------------------------ いないいないばあ */
 /*
- * Somebody is behind every hiding place, so there is nothing to get wrong — the
- * only question is who. A place that has already been opened stays open and
- * still answers a tap by saying its name again, because at this age doing the
- * same funny thing twelve times is the point rather than a failure to progress.
+ * Somebody is behind every hiding place, and when they have been found they
+ * duck back down and somebody else moves in. The board therefore never empties
+ * and the joke never runs out.
  */
-function renderPeekabooRound() {
-  const parts = buildStageFrame("stage-peekaboo");
-  const field = el("div", "farm-field");
+function renderPeekaboo() {
+  const parts = buildToyStage("peekaboo");
+  const field = el("div", "peek-field");
 
-  state.round.items.forEach(function (guest) {
-    const hideout = hideoutFor(guest.hideout);
-    const plot = el("div", "farm-plot");
+  dealPeekaboo(Math.random).forEach(function (spot) {
     const button = el("button", "hideout");
     button.type = "button";
-    /* An attribute, not a modifier class: `hideout-box` as a class would collide
-     * with the `.hideout-box` element inside it and restyle the button itself. */
-    button.setAttribute("data-hideout", guest.hideout);
-    button.setAttribute("data-item", guest.id);
-    button.setAttribute("aria-label", guest.label);
-    button.style.setProperty("--stir-delay", guest.slot * 0.55 + "s");
-
-    /* Same shape as a farm plot: the box shrink-wraps a square SVG drawn at
-     * full height, and everything else is positioned against that. */
-    const box = el("div", "hideout-box");
-    box.innerHTML = hideout.back;
-
-    const opening = el("div", "hideout-window");
-    opening.style.height = hideout.coverTop + "%";
-    const figure = el("i", "hideout-guest " + guestClass(guest));
-    figure.style.width = hideout.guestScale * 100 + "%";
-    figure.style.height = hideout.guestScale * 100 + "%";
-    figure.style.setProperty("--lip", hideout.lip + "%");
-    opening.appendChild(figure);
-
-    const front = el("div", "hideout-cover", hideout.front);
-
-    box.appendChild(opening);
-    box.appendChild(front);
-    button.appendChild(box);
-    plot.appendChild(button);
-    field.appendChild(plot);
-
+    button.setAttribute("data-item", "spot-" + spot.slot);
+    /* An attribute, not a modifier class: `hideout-box` as a class would
+     * collide with the `.hideout-box` element inside it. */
+    button.setAttribute("data-hideout", spot.hideout);
+    button.style.setProperty("--stir-delay", spot.slot * 0.55 + "s");
+    field.appendChild(button);
+    dressHideout(button, spot);
     on(button, "click", function () {
-      openHideout(button, guest);
+      openHideout(button);
     });
   });
 
-  parts.play.appendChild(field);
-  buildCollectSlots(parts.collect, targetsPerRound("peekaboo"));
-  startFreePlay(
-    function () {
-      return dom.stage.querySelector(".hideout:not(.is-open)");
-    },
-    function (manual) {
-      if (!manual) return;
-      audio.play("knock");
-      audio.speak("いないいない", "ja-JP");
-    },
-  );
-  showPeekaboo();
+  parts.field.appendChild(field);
+  startToyIdle(function () {
+    return dom.stage.querySelectorAll(".hideout:not(.is-open)");
+  });
+  danceTanuki(2);
 }
 
-function showPeekaboo() {
-  const body = askBody();
-  if (body) body.innerHTML = '<span class="ask-peek">いない<br />いない</span>';
+/* Put a hiding place and whoever is in it on screen, closed. */
+function dressHideout(button, spot) {
+  const hideout = hideoutFor(spot.hideout);
+  button.__guest = spot;
+  button.classList.remove("is-open");
+  button.setAttribute("aria-label", spot.label);
+  clear(button);
+
+  const box = el("div", "hideout-box");
+  box.innerHTML = hideout.back;
+
+  const opening = el("div", "hideout-window");
+  opening.style.height = hideout.coverTop + "%";
+  const figure = el("i", "hideout-guest " + guestClass(spot));
+  figure.style.width = hideout.guestScale * 100 + "%";
+  figure.style.height = hideout.guestScale * 100 + "%";
+  figure.style.setProperty("--lip", hideout.lip + "%");
+  opening.appendChild(figure);
+
+  const front = el("div", "hideout-cover", hideout.front);
+  box.appendChild(opening);
+  box.appendChild(front);
+  button.appendChild(box);
 }
 
 function guestClass(guest) {
   return guest.isTanuki ? "tanuki-sprite pose-jump" : spriteClass(guest.sprite);
 }
 
-function openHideout(button, guest) {
-  markInteraction();
-  const figure = button.querySelector(".hideout-guest");
+function visibleGuests() {
+  const nodes = dom.stage.querySelectorAll(".hideout");
+  const ids = [];
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (nodes[index].__guest) ids.push(nodes[index].__guest.id);
+  }
+  return ids;
+}
+
+function openHideout(button) {
+  const spot = button.__guest;
+  if (!spot) return;
+  toyTouched();
   if (button.classList.contains("is-open")) {
-    /* Already found. Say who it is again: a second tap must never be dead. */
+    /* Already out. A second tap must never be a dead touch, so they bounce. */
     audio.play("tap");
-    audio.speak(guest.speak, "ja-JP");
-    hop(figure);
+    hop(button.querySelector(".hideout-guest"));
     return;
   }
   button.classList.add("is-open");
   audio.play("peek");
-  audio.speak(guest.speak, "ja-JP");
-  burst(button, guest.isTanuki ? "#f7d35b" : "#ffe9a8", 14);
-  tanukiReact("jump", 900);
-  flashAsk("ばあ！", showPeekaboo);
-  const slotIndex = playStep();
-  if (slotIndex < 0) return;
-  fillCollectSlot(slotIndex, '<i class="' + guestClass(guest) + ' collected"></i>');
+  burst(button, spot.isTanuki ? "#f7d35b" : "#ffe9a8", 14);
+  /* "Peekaboo" for the tanuki, a name for everybody else: the joke lands
+   * harder when the one you were hoping for gets the punchline. */
+  toySpeak(spot.isTanuki ? TOY_LINES.peekaboo : spot.en);
+  danceTanuki(spot.isTanuki ? 4 : 2);
+
+  /* Long enough to be looked at, short enough that the spot is worth coming
+   * back to. Then somebody new moves in and it is a surprise again. */
+  schedule(function () {
+    if (!button.parentNode) return;
+    button.classList.remove("is-open");
+    schedule(function () {
+      if (!button.parentNode) return;
+      const taken = visibleGuests();
+      const spotIndex = taken.indexOf(spot.id);
+      if (spotIndex >= 0) taken.splice(spotIndex, 1);
+      const guest = nextGuest(taken, Math.random);
+      dressHideout(button, {
+        slot: spot.slot,
+        hideout: spot.hideout,
+        id: guest.id,
+        label: guest.label,
+        speak: guest.speak,
+        sprite: guest.sprite,
+        isTanuki: guest.isTanuki === true,
+      });
+    }, motion(40, 520));
+  }, motion(120, 3200));
 }
 
-/* ----------------------------------------------------------------- feast */
+/* --------------------------------------------------------------- ごはん */
 /*
- * Feeding the tanuki. One tap sends the food to its mouth — no dragging, no
- * drop target — and the reward is a mouthful, a name, and a visibly rounder
- * tanuki. The belly is the progress bar, which is why nothing has to be read.
+ * Tap the food and it goes into the tanuki's mouth. The plate refills, so
+ * there is always something to give; the tanuki gets visibly rounder with
+ * every mouthful, and when it can hold no more it does the belly-drum dance
+ * and starts again hungry.
  */
-function renderFeastRound() {
-  const parts = buildStageFrame("stage-feast");
-  const mat = el("div", "feast-mat");
+const FEAST_FULL = 6;
 
-  state.round.items.forEach(function (item) {
-    const button = el("button", "feast-food");
-    button.type = "button";
-    button.setAttribute("data-item", item.id);
-    button.setAttribute("aria-label", item.label);
-    button.innerHTML = '<i class="feast-plate"></i>' + spriteMarkup(item.id, "feast-sprite");
-    mat.appendChild(button);
-    on(button, "click", function () {
-      feed(button, item);
+function renderFeast() {
+  const parts = buildToyStage("feast");
+  const tray = el("div", "feast-tray");
+
+  dealFeast(Math.random).forEach(function (item) {
+    const plate = el("button", "feast-food");
+    plate.type = "button";
+    plate.setAttribute("data-item", "plate-" + item.slot);
+    tray.appendChild(plate);
+    serveFood(plate, item);
+    on(plate, "click", function () {
+      feed(plate);
     });
   });
 
-  parts.play.appendChild(mat);
-  buildCollectSlots(parts.collect, targetsPerRound("feast"));
-  state.roundFinale = feastFinale;
-  startFreePlay(
-    function () {
-      return dom.stage.querySelector(".feast-food:not(.is-eaten)");
-    },
-    function (manual) {
-      if (manual) audio.speak("おなか すいたなあ", "ja-JP");
-    },
-  );
-  showRemaining();
+  parts.field.appendChild(tray);
+  state.belly = 0;
   fattenTanuki();
+  startToyIdle(function () {
+    return dom.stage.querySelectorAll(".feast-food:not(.is-eaten)");
+  });
+  danceTanuki(2);
 }
 
-function feed(button, item) {
-  markInteraction();
-  if (button.classList.contains("is-eaten")) {
-    /* The plate is empty, but the touch still has to land somewhere. */
+function serveFood(plate, item) {
+  plate.__food = item;
+  plate.classList.remove("is-eaten");
+  plate.setAttribute("aria-label", item.label);
+  plate.innerHTML = '<i class="feast-plate"></i>' + spriteMarkup(item.id, "feast-sprite");
+}
+
+function servedFoods() {
+  const nodes = dom.stage.querySelectorAll(".feast-food");
+  const ids = [];
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (nodes[index].__food) ids.push(nodes[index].__food.id);
+  }
+  return ids;
+}
+
+function feed(plate) {
+  toyTouched();
+  if (plate.classList.contains("is-eaten")) {
+    /* An empty plate still answers: nothing on a toy is ever dead. */
     audio.play("tap");
-    wiggle(button);
+    wiggle(plate);
     return;
   }
-  button.classList.add("is-eaten");
-  const tanuki = dom.stage.querySelector(".ask-tanuki");
+  const item = plate.__food;
+  plate.classList.add("is-eaten");
+  const tanuki = tanukiNode();
   audio.play("pick");
-  flyTo(button, tanuki, "fly-sprite", spriteMarkup(item.id), function () {
+
+  flyTo(plate, tanuki, "fly-sprite", spriteMarkup(item.id), function () {
     audio.play("chomp");
     chew(tanuki);
-    audio.speak(item.label, "ja-JP");
+    toySpeak(item.en);
     state.yumIndex = (state.yumIndex + 1) % YUM.length;
     floatWord(tanuki, YUM[state.yumIndex]);
-    const slotIndex = playStep();
-    if (slotIndex >= 0) fillCollectSlot(slotIndex, spriteMarkup(item.id, "collected"));
+    state.belly += 1;
     fattenTanuki();
-    showRemaining();
+    if (state.belly >= FEAST_FULL) schedule(feastFull, motion(60, 520));
   });
+
+  /* The plate is refilled rather than left empty, so the child never has to
+   * wait for permission to give the next thing. */
+  schedule(function () {
+    if (!plate.parentNode) return;
+    const taken = servedFoods();
+    const at = taken.indexOf(item.id);
+    if (at >= 0) taken.splice(at, 1);
+    serveFood(plate, nextCourse(taken, Math.random));
+  }, motion(80, 1100));
+}
+
+function feastFull() {
+  const tanuki = tanukiNode();
+  audio.play("full");
+  audio.note(BAND_TANUKI.frequency, BAND_TANUKI.voice);
+  burst(tanuki, "#f7d35b", 20);
+  toyConfetti();
+  toySpeak(toyCycle(TOY_LINES.full));
+  danceTanuki(7);
+  /* Hungry again, so the best part can happen as often as she likes. */
+  schedule(function () {
+    state.belly = 0;
+    fattenTanuki();
+  }, motion(120, 2600));
 }
 
 /*
- * Six mouthfuls make a visibly rounder tanuki. It is done by stretching the
- * background image rather than by transforming the element, so it survives
- * every hop and wobble the same element is also doing.
+ * Six mouthfuls make a visibly rounder tanuki. Stretching the background image
+ * rather than transforming the element means the belly survives every hop,
+ * chew and dance the same element is also doing.
  */
 function fattenTanuki() {
-  const tanuki = dom.stage.querySelector(".ask-tanuki");
-  if (!tanuki) return;
-  tanuki.style.setProperty("--belly", String(1 + state.solved * 0.035));
+  const node = tanukiNode();
+  if (!node) return;
+  node.style.setProperty("--belly", String(1 + state.belly * 0.04));
 }
 
 function chew(node) {
@@ -1515,82 +1643,94 @@ function chew(node) {
   }, 620);
 }
 
-/* The belly drum, not a word: `completeRound` says "おなか いっぱい" a moment
- * later, and two voices would cancel each other out. */
-function feastFinale() {
-  const tanuki = dom.stage.querySelector(".ask-tanuki");
-  audio.play("full");
-  audio.note(BAND_TANUKI.frequency, BAND_TANUKI.voice);
-  burst(tanuki, "#f7d35b", 20);
-  chew(tanuki);
+/* --------------------------------------------------------- しゃぼんだま */
+/*
+ * The tanuki blows them and they keep coming. Each pop climbs a pentatonic
+ * scale, and a popped bubble is replaced a moment later, so the sky is never
+ * empty and there is nothing to clear.
+ */
+function renderBubbles() {
+  const parts = buildToyStage("bubble");
+  const sky = el("div", "bubble-sky");
+  parts.field.appendChild(sky);
+  state.bubbleSerial = 0;
+  dealBubbles(Math.random).forEach(function (bubble) {
+    state.bubbleSerial = Math.max(state.bubbleSerial, 1);
+    sky.appendChild(makeBubbleNode(bubble));
+  });
+  state.bubbleSerial = 6;
+  startToyIdle(function () {
+    return dom.stage.querySelectorAll(".bubble:not(.is-popped)");
+  });
+  danceTanuki(2);
 }
 
-/* --------------------------------------------------------------- bubbles */
-/*
- * Bubbles drift slowly enough that a clumsy finger still lands on them, and one
- * per cell of a hidden grid means none of them can hide behind another. Each
- * pop is a semitone higher than the last, so clearing a board plays a little
- * rising scale the child did not know they were writing.
- */
-function renderBubbleRound() {
-  const parts = buildStageFrame("stage-bubble");
-  const sky = el("div", "bubble-sky");
-
-  state.round.items.forEach(function (bubble) {
-    const button = el("button", "bubble");
-    button.type = "button";
-    button.setAttribute("data-item", bubble.id);
-    button.setAttribute("aria-label", "しゃぼんだま");
-    button.style.left = bubble.x + "%";
-    button.style.top = bubble.y + "%";
-    button.style.width = bubble.size + "vmin";
-    button.style.height = bubble.size + "vmin";
-    /* Centred with margins rather than a translate, so the drift, the pop and
-     * the guidance pulse can each own `transform` without cancelling the
-     * centring the way a shared translate would. */
-    button.style.marginLeft = -bubble.size / 2 + "vmin";
-    button.style.marginTop = -bubble.size / 2 + "vmin";
-    button.style.setProperty("--bubble-color", bubble.color);
-    button.style.setProperty("--sway", bubble.sway + "vmin");
-    button.style.setProperty("--float", bubble.duration + "ms");
-    /* A negative delay starts each bubble part-way through its own drift, so
-     * six of them never sway in lockstep. */
-    button.style.setProperty("--float-delay", "-" + Math.round(bubble.delay) + "ms");
-    button.innerHTML = '<i class="bubble-shine"></i><i class="bubble-spark"></i>';
-    sky.appendChild(button);
-    on(button, "pointerdown", function () {
-      popBubble(button, bubble);
-    });
+function makeBubbleNode(bubble) {
+  const button = el("button", "bubble");
+  button.type = "button";
+  button.setAttribute("data-item", bubble.id);
+  button.setAttribute("data-cell", String(bubble.cell));
+  button.setAttribute("aria-label", "しゃぼんだま");
+  button.style.left = bubble.x + "%";
+  button.style.top = bubble.y + "%";
+  button.style.width = bubble.size + "vmin";
+  button.style.height = bubble.size + "vmin";
+  /* Centred with margins rather than a translate, so the drift and the pop can
+   * each own `transform` without cancelling the centring. */
+  button.style.marginLeft = -bubble.size / 2 + "vmin";
+  button.style.marginTop = -bubble.size / 2 + "vmin";
+  button.style.setProperty("--bubble-color", bubble.color);
+  button.style.setProperty("--sway", bubble.sway + "vmin");
+  button.style.setProperty("--float", bubble.duration + "ms");
+  button.style.setProperty("--float-delay", "-" + Math.round(bubble.delay) + "ms");
+  button.innerHTML = '<i class="bubble-shine"></i><i class="bubble-spark"></i>';
+  on(button, "pointerdown", function () {
+    popBubble(button, bubble);
   });
-
-  parts.play.appendChild(sky);
-  buildCollectSlots(parts.collect, targetsPerRound("bubble"));
-  startFreePlay(
-    function () {
-      return dom.stage.querySelector(".bubble:not(.is-popped)");
-    },
-    function (manual) {
-      if (manual) audio.play("sparkle");
-    },
-  );
-  showRemaining();
+  return button;
 }
 
 function popBubble(button, bubble) {
   if (button.classList.contains("is-popped")) return;
-  markInteraction();
-  const slotIndex = playStep();
+  toyTouched();
   button.classList.add("is-popped");
-  audio.play("pop", slotIndex < 0 ? 0 : slotIndex);
+  audio.play("pop", state.playTaps % 6);
   burst(button, bubble.color, 10);
-  tanukiReact("jump", 520);
-  if (slotIndex >= 0) {
-    fillCollectSlot(
-      slotIndex,
-      '<span class="collected-bubble" style="background:' + bubble.color + '"></span>',
-    );
-  }
-  showRemaining();
+  hopTanuki();
+  if (state.playTaps % 3 === 0) toySpeak(TOY_LINES.pop);
+
+  /*
+   * Replaced as soon as the pop has finished playing. A slower refill let a
+   * fast pair of hands empty the sky, and an empty sky is the one state this
+   * toy is not allowed to reach.
+   */
+  const sky = dom.stage.querySelector(".bubble-sky");
+  schedule(function () {
+    if (button.parentNode) button.parentNode.removeChild(button);
+    if (!sky || !sky.parentNode) return;
+    state.bubbleSerial += 1;
+    sky.appendChild(makeBubbleNode(makeBubble(bubble.cell, state.bubbleSerial, Math.random)));
+  }, motion(60, 420));
+}
+
+/* -------------------------------------------------------------- opening */
+function startToy(activity) {
+  clearRuntime();
+  state.activity = activity;
+  state.playTaps = 0;
+  state.belly = 0;
+  state.session = null;
+  state.round = null;
+  setBodyActivity(activity);
+  showScreen("game");
+  audio.unlock();
+  audio.play("open");
+  updateHud();
+  if (activity === "band") renderBand();
+  else if (activity === "peekaboo") renderPeekaboo();
+  else if (activity === "feast") renderFeast();
+  else renderBubbles();
+  bindShellControls();
 }
 
 /* ------------------------------------------------------------ round flow */
@@ -1626,11 +1766,7 @@ function renderRound() {
   state.solved = 0;
   state.round = state.session.rounds[state.roundIndex];
   updateHud();
-  if (state.activity === "band") renderBandRound();
-  else if (state.activity === "peekaboo") renderPeekabooRound();
-  else if (state.activity === "feast") renderFeastRound();
-  else if (state.activity === "bubble") renderBubbleRound();
-  else if (state.activity === "farm") renderFarmRound();
+  if (state.activity === "farm") renderFarmRound();
   else if (state.activity === "animal") renderAnimalRound();
   else if (isLetterField(state.activity)) renderLetterFieldRound();
   else renderLiteracyRound();
@@ -1641,6 +1777,9 @@ function updateHud() {
   const meta = ACTIVITY_META[state.activity];
   dom.modeIcon.textContent = meta.icon;
   dom.modeTitle.textContent = meta.title;
+  /* A toy has no rounds to be part-way through, so it shows no progress. */
+  dom.pips.hidden = isPlayActivity(state.activity);
+  if (dom.pips.hidden) return;
   let pips = "";
   for (let index = 0; index < ROUNDS_PER_ACTIVITY; index += 1) {
     pips += '<i class="' + (index <= state.roundIndex ? "is-filled" : "") + '"></i>';
@@ -1693,9 +1832,26 @@ function curriculumSeedFor(activity) {
   return state.progress.curriculumSeed[activity];
 }
 
+function setBodyActivity(activity) {
+  document.body.className = document.body.className
+    .split(" ")
+    .filter(function (name) {
+      return name.indexOf("activity-") !== 0;
+    })
+    .join(" ");
+  document.body.classList.add("activity-" + activity);
+}
+
 function startMode(activity) {
+  const resolved = normalizeActivity(activity);
+  /* The toys do not have sessions, rounds or an end, so they never enter the
+   * machinery below. */
+  if (isPlayActivity(resolved)) {
+    startToy(resolved);
+    return;
+  }
   clearRuntime();
-  state.activity = normalizeActivity(activity);
+  state.activity = resolved;
   state.roundIndex = 0;
   state.sessionResults = [];
   state.sessionFound = {};
@@ -1705,13 +1861,7 @@ function startMode(activity) {
     curriculumIndex: state.progress.curriculum[state.activity],
     curriculumSeed: curriculumSeedFor(state.activity),
   });
-  document.body.className = document.body.className
-    .split(" ")
-    .filter(function (name) {
-      return name.indexOf("activity-") !== 0;
-    })
-    .join(" ");
-  document.body.classList.add("activity-" + state.activity);
+  setBodyActivity(state.activity);
   showScreen("game");
   audio.unlock();
   audio.play("open");

@@ -34,27 +34,27 @@ export const ROUNDS_PER_ACTIVITY = 3;
  * drops, trellis fruit unhooks. It is learning content, not decoration.
  */
 export const FRUITS = [
-  { id: "apple", label: "りんご", kind: "fruit", habitat: "tree" },
-  { id: "orange", label: "みかん", kind: "fruit", habitat: "tree" },
-  { id: "peach", label: "もも", kind: "fruit", habitat: "tree" },
-  { id: "cherry", label: "さくらんぼ", kind: "fruit", habitat: "tree" },
-  { id: "lemon", label: "レモン", kind: "fruit", habitat: "tree" },
-  { id: "grape", label: "ぶどう", kind: "fruit", habitat: "trellis" },
-  { id: "strawberry", label: "いちご", kind: "fruit", habitat: "bush" },
-  { id: "watermelon", label: "すいか", kind: "fruit", habitat: "vine" },
-  { id: "banana", label: "バナナ", kind: "fruit", habitat: "palm" },
+  { id: "apple", label: "りんご", kind: "fruit", habitat: "tree", en: "Apple" },
+  { id: "orange", label: "みかん", kind: "fruit", habitat: "tree", en: "Orange" },
+  { id: "peach", label: "もも", kind: "fruit", habitat: "tree", en: "Peach" },
+  { id: "cherry", label: "さくらんぼ", kind: "fruit", habitat: "tree", en: "Cherries" },
+  { id: "lemon", label: "レモン", kind: "fruit", habitat: "tree", en: "Lemon" },
+  { id: "grape", label: "ぶどう", kind: "fruit", habitat: "trellis", en: "Grapes" },
+  { id: "strawberry", label: "いちご", kind: "fruit", habitat: "bush", en: "Strawberry" },
+  { id: "watermelon", label: "すいか", kind: "fruit", habitat: "vine", en: "Watermelon" },
+  { id: "banana", label: "バナナ", kind: "fruit", habitat: "palm", en: "Banana" },
 ];
 
 export const VEGETABLES = [
-  { id: "daikon", label: "だいこん", kind: "vegetable", habitat: "soil" },
-  { id: "carrot", label: "にんじん", kind: "vegetable", habitat: "soil" },
-  { id: "onion", label: "たまねぎ", kind: "vegetable", habitat: "soil" },
-  { id: "sweet-potato", label: "さつまいも", kind: "vegetable", habitat: "soil" },
-  { id: "cabbage", label: "キャベツ", kind: "vegetable", habitat: "ground" },
-  { id: "pumpkin", label: "かぼちゃ", kind: "vegetable", habitat: "vine" },
-  { id: "edamame", label: "えだまめ", kind: "vegetable", habitat: "bush" },
-  { id: "eggplant", label: "なす", kind: "vegetable", habitat: "bush" },
-  { id: "cucumber", label: "きゅうり", kind: "vegetable", habitat: "trellis" },
+  { id: "daikon", label: "だいこん", kind: "vegetable", habitat: "soil", en: "Radish" },
+  { id: "carrot", label: "にんじん", kind: "vegetable", habitat: "soil", en: "Carrot" },
+  { id: "onion", label: "たまねぎ", kind: "vegetable", habitat: "soil", en: "Onion" },
+  { id: "sweet-potato", label: "さつまいも", kind: "vegetable", habitat: "soil", en: "Sweet potato" },
+  { id: "cabbage", label: "キャベツ", kind: "vegetable", habitat: "ground", en: "Cabbage" },
+  { id: "pumpkin", label: "かぼちゃ", kind: "vegetable", habitat: "vine", en: "Pumpkin" },
+  { id: "edamame", label: "えだまめ", kind: "vegetable", habitat: "bush", en: "Beans" },
+  { id: "eggplant", label: "なす", kind: "vegetable", habitat: "bush", en: "Eggplant" },
+  { id: "cucumber", label: "きゅうり", kind: "vegetable", habitat: "trellis", en: "Cucumber" },
 ];
 
 export const FARM_ITEMS = FRUITS.concat(VEGETABLES);
@@ -88,18 +88,18 @@ export function isOverhead(habitat) {
 /* --------------------------------------------------------------- animals */
 /* `cry` is optional: only animals with an iconic Japanese onomatopoeia have one. */
 export const ANIMALS = [
-  { id: "dog", label: "いぬ", cry: "ワンワン" },
-  { id: "cat", label: "ねこ", cry: "ニャーオ" },
-  { id: "pig", label: "ぶた", cry: "ブーブー" },
-  { id: "bird", label: "とり", cry: "ピピピ" },
-  { id: "lion", label: "ライオン", cry: "ガオー" },
-  { id: "elephant", label: "ぞう", cry: "パオーン" },
-  { id: "monkey", label: "さる", cry: "ウキキ" },
-  { id: "zebra", label: "しまうま" },
-  { id: "panda", label: "パンダ" },
-  { id: "giraffe", label: "キリン" },
-  { id: "hippo", label: "かば" },
-  { id: "camel", label: "ラクダ" },
+  { id: "dog", label: "いぬ", cry: "ワンワン", en: "Dog" },
+  { id: "cat", label: "ねこ", cry: "ニャーオ", en: "Cat" },
+  { id: "pig", label: "ぶた", cry: "ブーブー", en: "Pig" },
+  { id: "bird", label: "とり", cry: "ピピピ", en: "Bird" },
+  { id: "lion", label: "ライオン", cry: "ガオー", en: "Lion" },
+  { id: "elephant", label: "ぞう", cry: "パオーン", en: "Elephant" },
+  { id: "monkey", label: "さる", cry: "ウキキ", en: "Monkey" },
+  { id: "zebra", label: "しまうま", en: "Zebra" },
+  { id: "panda", label: "パンダ", en: "Panda" },
+  { id: "giraffe", label: "キリン", en: "Giraffe" },
+  { id: "hippo", label: "かば", en: "Hippo" },
+  { id: "camel", label: "ラクダ", en: "Camel" },
 ];
 
 /*
@@ -271,7 +271,7 @@ export const PEEKABOO_HIDEOUTS = ["bush", "pot", "box", "leaves", "hollow", "bas
 export const PEEKABOO_TANUKI = {
   id: "peek-tanuki",
   label: "たぬき",
-  speak: "ばあ",
+  en: "Tanuki",
   sprite: null,
   isTanuki: true,
 };
@@ -281,7 +281,7 @@ export const PEEKABOO_CAST = ANIMALS.map(function (animal) {
   return {
     id: "peek-" + animal.id,
     label: animal.label,
-    speak: animal.label + (animal.cry ? "。" + animal.cry : ""),
+    en: animal.en,
     sprite: animal.id,
     isTanuki: false,
   };
@@ -290,16 +290,36 @@ export const PEEKABOO_CAST = ANIMALS.map(function (animal) {
     return {
       id: "peek-" + fruit.id,
       label: fruit.label,
-      speak: fruit.label,
+      en: fruit.en,
       sprite: fruit.id,
       isTanuki: false,
     };
   }),
 );
 
-/* What the tanuki says with its mouth full. Cycled, never random, so the same
- * word does not land twice in a row. */
+/*
+ * What the tanuki says with its mouth full — drawn on screen, not spoken, so
+ * it can never talk over the name of the food. Cycled rather than random, so
+ * the same word does not land twice in a row.
+ */
 export const YUM = ["おいしい", "もぐもぐ", "うまうま", "おかわり"];
+
+/*
+ * Spoken lines for the toys, in English.
+ *
+ * The Japanese voice on the device was reported as unpleasant to listen to,
+ * and the owner said English is fine if it sounds better — which it does: the
+ * shipped English voices are far more natural than the Japanese ones. Words in
+ * the toys are decoration rather than curriculum, so nothing is lost by moving
+ * them, and the learning games keep Japanese where the language IS the lesson.
+ */
+export const TOY_LINES = {
+  peekaboo: "Peekaboo",
+  tanuki: "It is the tanuki",
+  pop: "Pop",
+  yay: ["Yay", "Wow", "Nice", "Hooray"],
+  full: ["All full", "Yummy", "So good"],
+};
 
 /* Bubbles. Colour is the only variable that matters; everything else about a
  * bubble is decided by the board so no two floats look alike. */

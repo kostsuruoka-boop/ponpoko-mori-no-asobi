@@ -37,16 +37,22 @@ import {
   advanceCurriculum,
   advanceRound,
   animalById,
-  BAND_NOTES_PER_ROUND,
-  BUBBLES_PER_ROUND,
-  FEAST_COURSES_PER_ROUND,
-  PEEKABOO_SPOTS_PER_ROUND,
+  BAND_FRIENDS,
+  BUBBLES_ON_SCREEN,
+  CHEER_EVERY,
+  FEAST_PLATES,
+  PEEKABOO_SPOTS,
+  PEEKABOO_TANUKI_CHANCE,
   createAnimalSession,
-  createBandSession,
-  createBubbleSession,
   createFarmSession,
-  createFeastSession,
-  createPeekabooSession,
+  dealBand,
+  dealBubbles,
+  dealFeast,
+  dealPeekaboo,
+  makeBubble,
+  nextCourse,
+  nextGuest,
+  pickNext,
   createLetterFieldSession,
   createLiteracySession,
   createSession,
@@ -489,10 +495,10 @@ test("guidance escalates on idling and reaches the pointing stage on wrong taps"
   assert.equal(hintStage(Number.NaN, Number.NaN), 0);
 });
 
-/* ------------------------------------------------------------ play modes */
+/* ------------------------------------------------------------ toy boards */
 
 test("every band friend has its own pitch, and every pitch is pentatonic", () => {
-  assert.equal(BAND_MEMBERS.length, BAND_NOTES_PER_ROUND);
+  assert.equal(BAND_MEMBERS.length, BAND_FRIENDS);
   const ids = BAND_MEMBERS.map((member) => member.id);
   assert.equal(new Set(ids).size, BAND_MEMBERS.length);
   const animals = new Set(ANIMALS.map((animal) => animal.id));
@@ -528,55 +534,71 @@ test("every band friend has its own pitch, and every pitch is pentatonic", () =>
   });
 });
 
-test("the band deals every friend into every round, in a different order", () => {
+test("the band always brings everyone, and lines up differently", () => {
   const orders = new Set();
   generators().forEach((random) => {
-    const rounds = createBandSession(random);
-    assert.equal(rounds.length, ROUNDS_PER_ACTIVITY);
-    rounds.forEach((round) => {
-      assert.equal(round.items.length, BAND_NOTES_PER_ROUND);
-      assert.deepEqual(
-        round.items.map((item) => item.id).toSorted(),
-        BAND_MEMBERS.map((member) => member.id).toSorted(),
-      );
-      round.items.forEach((item, index) => assert.equal(item.slot, index));
-      orders.add(round.items.map((item) => item.id).join(","));
-    });
+    const row = dealBand(random);
+    assert.equal(row.length, BAND_FRIENDS);
+    assert.deepEqual(
+      row.map((member) => member.id).toSorted(),
+      BAND_MEMBERS.map((member) => member.id).toSorted(),
+    );
+    row.forEach((member, index) => assert.equal(member.slot, index));
+    orders.add(row.map((member) => member.id).join(","));
   });
   assert.ok(orders.size > 1, "the band always lines up the same way");
 });
 
-test("somebody is hiding behind every peekaboo spot, and one of them is the tanuki", () => {
+test("a dealer never hands out something that is already on the board", () => {
+  const catalog = [{ id: "a" }, { id: "b" }, { id: "c" }];
   generators().forEach((random) => {
-    const rounds = createPeekabooSession(random);
-    assert.equal(rounds.length, ROUNDS_PER_ACTIVITY);
-    const seen = new Set();
-    rounds.forEach((round) => {
-      assert.equal(round.items.length, PEEKABOO_SPOTS_PER_ROUND);
-      const tanuki = round.items.filter((item) => item.isTanuki);
-      assert.equal(tanuki.length, 1, "every board needs exactly one tanuki");
-      const ids = round.items.map((item) => item.id);
-      assert.equal(new Set(ids).size, ids.length, "a guest appears twice on one board");
-      const hideouts = round.items.map((item) => item.hideout);
-      assert.equal(new Set(hideouts).size, hideouts.length, "two guests share a hiding place");
-      round.items.forEach((item, index) => {
-        assert.equal(item.slot, index);
-        assert.ok(item.label.length > 0);
-        assert.ok(item.speak.length > 0);
-        assert.ok(PEEKABOO_HIDEOUTS.indexOf(item.hideout) >= 0);
-        /* Only the tanuki is drawn from a pose rather than a sprite. */
-        assert.equal(item.isTanuki, item.sprite === null);
-        if (!item.isTanuki) seen.add(item.id);
-      });
-    });
-    assert.equal(seen.size, (PEEKABOO_SPOTS_PER_ROUND - 1) * ROUNDS_PER_ACTIVITY,
-      "a guest repeated inside one session");
+    assert.equal(pickNext(catalog, ["a", "b"], random).id, "c");
+    /* And when everything is out it still deals: a toy that can run dry would
+     * end, and these are not allowed to end. */
+    assert.ok(pickNext(catalog, ["a", "b", "c"], random));
   });
+});
+
+test("the opening peekaboo board hides six different guests, one of them the tanuki", () => {
+  generators().forEach((random) => {
+    const spots = dealPeekaboo(random);
+    assert.equal(spots.length, PEEKABOO_SPOTS);
+    const tanuki = spots.filter((spot) => spot.isTanuki);
+    assert.equal(tanuki.length, 1, "every opening board needs exactly one tanuki");
+    const ids = spots.map((spot) => spot.id);
+    assert.equal(new Set(ids).size, ids.length, "a guest appears twice");
+    const hideouts = spots.map((spot) => spot.hideout);
+    assert.equal(new Set(hideouts).size, hideouts.length, "two guests share a hiding place");
+    spots.forEach((spot, index) => {
+      assert.equal(spot.slot, index);
+      assert.ok(spot.label.length > 0);
+      assert.ok(spot.en.length > 0, `${spot.id} has nothing to say`);
+      assert.ok(PEEKABOO_HIDEOUTS.indexOf(spot.hideout) >= 0);
+      /* Only the tanuki is drawn from a pose rather than a sprite. */
+      assert.equal(spot.isTanuki, spot.sprite === null);
+    });
+  });
+});
+
+test("the next guest is somebody new, and is sometimes the tanuki", () => {
+  assert.ok(PEEKABOO_TANUKI_CHANCE > 0 && PEEKABOO_TANUKI_CHANCE < 0.5);
+  const random = seededRandom(31);
+  const seenTanuki = new Set();
+  for (let round = 0; round < 300; round += 1) {
+    const taken = PEEKABOO_CAST.slice(0, 3).map((guest) => guest.id);
+    const guest = nextGuest(taken, random);
+    assert.ok(taken.indexOf(guest.id) < 0, "dealt a guest who is already out");
+    if (guest.isTanuki) seenTanuki.add(guest.id);
+  }
+  assert.equal(seenTanuki.size, 1, "the tanuki never turns up");
+  /* And it stays away while it is already on the board. */
+  for (let round = 0; round < 60; round += 1) {
+    assert.ok(!nextGuest([PEEKABOO_TANUKI.id], random).isTanuki);
+  }
 });
 
 test("the peekaboo cast is built from artwork the child has already met", () => {
   assert.equal(PEEKABOO_TANUKI.sprite, null);
-  assert.equal(PEEKABOO_TANUKI.speak, "ばあ");
   const known = new Set(
     ANIMALS.map((animal) => animal.id).concat(FRUITS.map((fruit) => fruit.id)),
   );
@@ -584,9 +606,9 @@ test("the peekaboo cast is built from artwork the child has already met", () => 
   PEEKABOO_CAST.forEach((guest) => {
     assert.ok(known.has(guest.sprite), `${guest.id} points at unknown artwork`);
     assert.equal(guest.isTanuki, false);
+    assert.ok(guest.en && guest.en.length > 0, `${guest.id} has no English name`);
   });
-  /* Enough guests that a session never has to repeat one. */
-  assert.ok(PEEKABOO_CAST.length >= (PEEKABOO_SPOTS_PER_ROUND - 1) * ROUNDS_PER_ACTIVITY);
+  assert.ok(PEEKABOO_CAST.length > PEEKABOO_SPOTS);
 });
 
 test("every hiding place can hide and reveal a guest", () => {
@@ -604,73 +626,66 @@ test("every hiding place can hide and reveal a guest", () => {
   assert.equal(hideoutFor("nowhere"), HIDEOUTS.box);
 });
 
-test("the feast serves all eighteen foods across one session", () => {
+test("the tray always holds six different things to give", () => {
   generators().forEach((random) => {
-    const rounds = createFeastSession(random);
-    assert.equal(rounds.length, ROUNDS_PER_ACTIVITY);
-    const served = [];
-    rounds.forEach((round) => {
-      assert.equal(round.items.length, FEAST_COURSES_PER_ROUND);
-      round.items.forEach((item, index) => {
-        assert.equal(item.slot, index);
-        assert.ok(item.label.length > 0);
-        served.push(item.id);
-      });
+    const plates = dealFeast(random);
+    assert.equal(plates.length, FEAST_PLATES);
+    const ids = plates.map((plate) => plate.id);
+    assert.equal(new Set(ids).size, ids.length, "the same food is on two plates");
+    plates.forEach((plate, index) => {
+      assert.equal(plate.slot, index);
+      assert.ok(plate.label.length > 0);
+      assert.ok(plate.en.length > 0, `${plate.id} has nothing to say`);
     });
-    assert.deepEqual(served.toSorted(), FARM_ITEMS.map((item) => item.id).toSorted());
+    /* Refilling a plate must not duplicate what is still on the tray. */
+    const replacement = nextCourse(ids.slice(1), random);
+    assert.ok(ids.slice(1).indexOf(replacement.id) < 0);
   });
 });
 
-test("the tanuki has something to say with its mouth full", () => {
-  assert.ok(YUM.length >= 3);
-  YUM.forEach((word) => assert.ok(word.length > 0));
-  assert.equal(new Set(YUM).size, YUM.length);
+test("every food and animal has an English name for the toys to say", () => {
+  FARM_ITEMS.concat(ANIMALS).forEach((item) => {
+    assert.ok(item.en && item.en.length > 0, `${item.id} has no English name`);
+    assert.ok(/^[A-Z][A-Za-z ]*$/.test(item.en), `${item.id} has an odd English name: ${item.en}`);
+  });
 });
 
 test("bubbles are spread one to a cell and stay inside the board", () => {
-  assert.equal(BUBBLE_COLORS.length, BUBBLES_PER_ROUND);
+  assert.equal(BUBBLE_COLORS.length, BUBBLES_ON_SCREEN);
   generators().forEach((random) => {
-    const rounds = createBubbleSession(random);
-    assert.equal(rounds.length, ROUNDS_PER_ACTIVITY);
-    rounds.forEach((round) => {
-      assert.equal(round.items.length, BUBBLES_PER_ROUND);
-      const ids = round.items.map((item) => item.id);
-      assert.equal(new Set(ids).size, ids.length);
-      const colors = round.items.map((item) => item.color);
-      assert.equal(new Set(colors).size, colors.length, "two bubbles share a colour");
-      round.items.forEach((item, index) => {
-        assert.equal(item.slot, index);
-        /* Kept well inside the board: a bubble whose edge left the play area
-         * would be a target a child could not finish popping. */
-        assert.ok(item.x > 8 && item.x < 92, `bubble x out of bounds: ${item.x}`);
-        assert.ok(item.y > 15 && item.y < 85, `bubble y out of bounds: ${item.y}`);
-        assert.ok(item.size >= 17 && item.size <= 24, `bubble size out of range: ${item.size}`);
-        assert.ok(item.duration >= 4000, "a bubble that drifts too fast to catch");
-        assert.ok(item.sway > 0 && item.sway < 6);
-        assert.ok(item.delay >= 0);
-      });
-      /* No two bubbles in the same cell means none can hide behind another. */
-      const cells = round.items.map(
-        (item) => Math.floor(item.x / 33.34) + "," + Math.floor(item.y / 50),
-      );
-      assert.equal(new Set(cells).size, cells.length, "two bubbles landed in one cell");
+    const sky = dealBubbles(random);
+    assert.equal(sky.length, BUBBLES_ON_SCREEN);
+    const ids = sky.map((bubble) => bubble.id);
+    assert.equal(new Set(ids).size, ids.length);
+    const colors = sky.map((bubble) => bubble.color);
+    assert.equal(new Set(colors).size, colors.length, "two bubbles share a colour");
+    sky.forEach((bubble) => {
+      /* Kept well inside the board: a bubble whose edge left the play area
+       * would be a target a child could not finish popping. */
+      assert.ok(bubble.x > 8 && bubble.x < 92, `bubble x out of bounds: ${bubble.x}`);
+      assert.ok(bubble.y > 15 && bubble.y < 85, `bubble y out of bounds: ${bubble.y}`);
+      assert.ok(bubble.size >= 17 && bubble.size <= 24, `bubble size out of range: ${bubble.size}`);
+      assert.ok(bubble.duration >= 4000, "a bubble that drifts too fast to catch");
+      assert.ok(bubble.sway > 0 && bubble.sway < 6);
+      assert.ok(bubble.delay >= 0);
     });
+    /* No two in the same cell means none can hide behind another. */
+    const cells = sky.map((bubble) => bubble.cell);
+    assert.equal(new Set(cells).size, cells.length, "two bubbles landed in one cell");
+    /* A replacement stays in the cell the popped one left. */
+    const replacement = makeBubble(sky[0].cell, 99, random);
+    assert.equal(replacement.cell, sky[0].cell);
+    assert.ok(replacement.x > 8 && replacement.x < 92);
   });
 });
 
-test("every play board fills its shelf exactly", () => {
-  PLAY_ACTIVITIES.forEach((activity) => {
-    const session = createSession(activity, { random: seededRandom(4242) });
-    session.rounds.forEach((round) => {
-      assert.equal(round.items.length, targetsPerRound(activity),
-        `${activity} board does not match its shelf`);
-    });
-  });
+test("the toys celebrate often enough to be worth playing for", () => {
+  assert.ok(CHEER_EVERY >= 4 && CHEER_EVERY <= 12);
 });
 
 /* ----------------------------------------------------------- progression */
 
-test("the session factory supports every mode and rejects unknown ones", () => {
+test("the finding games have sessions and the toys refuse to", () => {
   assert.deepEqual(ACTIVITY_ORDER, [
     "band", "peekaboo", "feast", "bubble",
     "farm", "animal", "hiragana", "alphabet", "hiragana-field", "alphabet-field",
@@ -684,6 +699,9 @@ test("the session factory supports every mode and rejects unknown ones", () => {
     assert.ok(!isPlayActivity(activity), `${activity} should not be a play mode`);
   });
   ACTIVITY_ORDER.forEach((activity) => {
+    assert.ok(ACTIVITY_META[activity].title.length > 0);
+  });
+  LEARN_ACTIVITIES.forEach((activity) => {
     const session = createSession(activity, {
       random: seededRandom(11),
       curriculumIndex: 3,
@@ -692,12 +710,12 @@ test("the session factory supports every mode and rejects unknown ones", () => {
     assert.equal(session.activity, activity);
     assert.equal(session.rounds.length, ROUNDS_PER_ACTIVITY);
     session.rounds.forEach((round) => assert.equal(round.activity, activity));
-    assert.ok(ACTIVITY_META[activity].title.length > 0);
   });
-  assert.equal(targetsPerRound("band"), 6);
-  assert.equal(targetsPerRound("peekaboo"), 6);
-  assert.equal(targetsPerRound("feast"), 6);
-  assert.equal(targetsPerRound("bubble"), 6);
+  /* A toy has no session because it has no end. Asking for one is a bug in the
+   * caller, so it throws rather than quietly handing back an empty shape. */
+  PLAY_ACTIVITIES.forEach((activity) => {
+    assert.throws(() => createSession(activity), /never end/);
+  });
   assert.equal(targetsPerRound("farm"), 6);
   assert.equal(targetsPerRound("animal"), 4);
   assert.equal(targetsPerRound("hiragana"), 5);

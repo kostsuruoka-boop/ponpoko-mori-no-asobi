@@ -6,6 +6,16 @@
  * one classic script for old iPads.
  */
 
+/*
+ * The voices worth using, best first. iPadOS ships Kyoko for Japanese and
+ * Samantha for English; everything else is a fallback for a device that has
+ * neither. Matching by substring survives the "Kyoko (Enhanced)" style names.
+ */
+const PREFERRED_VOICES = {
+  ja: ["Kyoko", "Otoya", "O-ren", "Hattori", "Google 日本語"],
+  en: ["Samantha", "Karen", "Moira", "Daniel", "Google US English"],
+};
+
 export class AudioDirector {
   constructor(getSettings) {
     this.getSettings = getSettings;
@@ -78,24 +88,41 @@ export class AudioDirector {
     }, settings.delay || 90);
   }
 
+  /*
+   * Named voices first. A slowed-down, pitched-up synthetic voice was reported
+   * as unpleasant to listen to, and the two settings were the cause: raising
+   * the pitch of a Japanese voice makes it sound wrong, and slowing it below
+   * about 0.9 slurs the consonants. Neutral pitch and a near-natural rate on a
+   * good voice sound like a person; the old values sounded like a machine
+   * imitating one.
+   */
+  pickVoice(lang) {
+    const prefix = lang.toLowerCase().slice(0, 2);
+    const wanted = PREFERRED_VOICES[prefix] || [];
+    const available = [];
+    for (let index = 0; index < this.voices.length; index += 1) {
+      const voice = this.voices[index];
+      if (voice.lang.toLowerCase().replace("_", "-").indexOf(prefix) === 0) available.push(voice);
+    }
+    for (let rank = 0; rank < wanted.length; rank += 1) {
+      for (let index = 0; index < available.length; index += 1) {
+        if (available[index].name.indexOf(wanted[rank]) >= 0) return available[index];
+      }
+    }
+    for (let index = 0; index < available.length; index += 1) {
+      if (available[index].localService) return available[index];
+    }
+    return available[0] || null;
+  }
+
   speakNow(text, lang, settings) {
     try {
       const utterance = new SpeechSynthesisUtterance(String(text));
       utterance.lang = lang;
-      utterance.rate = settings.rate || (lang.indexOf("ja") === 0 ? 0.8 : 0.72);
-      utterance.pitch = settings.pitch || 1.08;
+      utterance.rate = settings.rate || (lang.indexOf("ja") === 0 ? 0.95 : 0.85);
+      utterance.pitch = settings.pitch || 1;
       utterance.volume = 1;
-      const prefix = lang.toLowerCase().slice(0, 2);
-      let chosen = null;
-      for (let index = 0; index < this.voices.length; index += 1) {
-        const voice = this.voices[index];
-        if (voice.lang.toLowerCase().indexOf(prefix) !== 0) continue;
-        if (voice.localService) {
-          chosen = voice;
-          break;
-        }
-        if (!chosen) chosen = voice;
-      }
+      const chosen = this.pickVoice(lang);
       if (chosen) utterance.voice = chosen;
       window.speechSynthesis.speak(utterance);
     } catch (error) {
