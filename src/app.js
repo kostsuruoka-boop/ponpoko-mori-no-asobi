@@ -562,9 +562,9 @@ function floatWord(node, text, className) {
   if (!rect.width) return;
   const word = el("i", "float-word " + (className || ""), text);
   word.style.left = rect.left + rect.width / 2 + "px";
-  /* Launched from the shoulder, so a wide word never sits across the face of
-   * whoever just said it. */
-  word.style.top = rect.top + rect.height * 0.3 + "px";
+  /* Launched from just above the head. Starting it lower put the word across
+   * the face of whoever had just said it. */
+  word.style.top = rect.top + rect.height * 0.04 + "px";
   word.style.setProperty("--dx", Math.round(Math.random() * 44 - 22) + "px");
   dom.fx.appendChild(word);
   schedule(function () {
