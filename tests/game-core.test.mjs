@@ -497,26 +497,35 @@ test("guidance escalates on idling and reaches the pointing stage on wrong taps"
 
 /* ------------------------------------------------------------ toy boards */
 
-test("every band friend has its own pitch, and every pitch is pentatonic", () => {
+test("every band friend has a cry of its own, over a pentatonic note", () => {
   assert.equal(BAND_MEMBERS.length, BAND_FRIENDS);
   const ids = BAND_MEMBERS.map((member) => member.id);
   assert.equal(new Set(ids).size, BAND_MEMBERS.length);
-  const animals = new Set(ANIMALS.map((animal) => animal.id));
   const pitches = new Set();
   BAND_MEMBERS.concat([BAND_TANUKI]).forEach((member) => {
     assert.ok(member.frequency > 0, `${member.id} needs a pitch`);
-    assert.ok(member.voice.length > 0, `${member.id} needs a voice`);
     assert.ok(!pitches.has(member.frequency), `${member.id} duplicates a pitch`);
     pitches.add(member.frequency);
   });
+
+  /*
+   * Pressing an animal makes that animal's noise, so only animals with an
+   * iconic cry can be in the band. This is what fixes the line-up: a panda
+   * pad would have nothing to say when pressed.
+   */
+  const cries = new Set();
   BAND_MEMBERS.forEach((member) => {
-    assert.ok(animals.has(member.animal), `${member.id} points at an unknown animal`);
+    const animal = animalById(member.animal);
+    assert.ok(animal, `${member.id} points at an unknown animal`);
+    assert.ok(animal.cry, `${member.id} is an animal with no cry`);
+    assert.ok(!cries.has(animal.cry), `${member.id} duplicates a cry`);
+    cries.add(animal.cry);
     assert.ok(/^#[0-9a-f]{6}$/.test(member.color), `${member.id} needs a colour`);
   });
 
   /*
-   * Any order of taps has to stay consonant, so every note must be a degree of
-   * one pentatonic scale — C, D, E, G or A, in any octave. Measured in
+   * The cries sit over a quiet note each, and any order of taps has to stay
+   * consonant, so every note must be a degree of one pentatonic scale — C, D, E, G or A, in any octave. Measured in
    * equal-tempered semitones above C4, which is what the frequencies are.
    */
   const PENTATONIC = [0, 2, 4, 7, 9];

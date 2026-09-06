@@ -454,8 +454,6 @@ export function dealBand(random) {
       slot: index,
       id: member.id,
       animal: member.animal,
-      label: member.label,
-      voice: member.voice,
       frequency: member.frequency,
       color: member.color,
     };
@@ -469,6 +467,7 @@ export function dealBand(random) {
  */
 const BUBBLE_COLUMNS = 3;
 const BUBBLE_ROWS = 2;
+export const BUBBLE_CELLS = BUBBLE_COLUMNS * BUBBLE_ROWS;
 
 export function makeBubble(cell, serial, random) {
   const pick = random || Math.random;

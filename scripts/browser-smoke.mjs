@@ -362,6 +362,27 @@ async function checkUniformBoard(activity) {
  * or off the screen. Checked rather than reasoned about, because the cell shape
  * depends on the viewport.
  */
+/*
+ * The rest of the run plays with the effects switched off so it stays quiet,
+ * which means the synthesised animal cries — six separate code paths, each
+ * building its own graph of oscillators and filters — would otherwise never be
+ * executed at all. Chrome is launched muted, so this makes the graphs without
+ * making a sound, and any exception lands in the console errors that fail the
+ * run at the end.
+ */
+async function checkCriesRun() {
+  await evaluate("window.__ponpoko.state.settings.effects = true");
+  const pads = await evaluate(
+    '[...document.querySelectorAll(".band-pad")].map((n) => n.getAttribute("data-item"))',
+  );
+  if (pads.length < 2) throw new Error("band: no pads to sound");
+  for (const id of pads) {
+    await tap(`.band-pad[data-item="${id}"]`);
+    await wait(90);
+  }
+  await evaluate("window.__ponpoko.state.settings.effects = false");
+}
+
 async function checkHideoutsFit() {
   const report = await evaluate(`(() => {
     const spots = [...document.querySelectorAll(".hideout")];
@@ -493,17 +514,31 @@ async function playToy(activity) {
   await checkAskFits(activity);
   await checkUniformBoard(activity);
   if (activity === "peekaboo") await checkHideoutsFit();
+  if (activity === "band") await checkCriesRun();
   await checkNoOverflow(activity);
   await shot(activity);
 
   for (let touch = 0; touch < 14; touch += 1) {
     /* Read the board fresh every time: a popped bubble is replaced by a new
      * one with a new id, so a snapshot of ids would go stale. */
-    const id = await evaluate(`(() => {
-      const node = document.querySelector("[data-item]:not(.is-popped)");
-      return node ? node.getAttribute("data-item") : null;
+    const board = await evaluate(`(() => {
+      const all = [...document.querySelectorAll("[data-item]")];
+      const live = all.filter((node) => !node.classList.contains("is-popped"));
+      return {
+        id: live.length ? live[0].getAttribute("data-item") : null,
+        total: all.length,
+        live: live.length,
+        stage: !!document.querySelector(".toy-stage"),
+        screen: document.querySelector("#app").dataset.screen,
+      };
     })()`);
-    if (!id) throw new Error(`${activity}: the board ran out of things to touch`);
+    if (!board.id) {
+      throw new Error(
+        `${activity}: the board ran out of things to touch at touch ${touch} `
+        + JSON.stringify(board),
+      );
+    }
+    const id = board.id;
     const before = await evaluate("window.__ponpoko.state.playTaps");
     await tap(`[data-item="${id}"]`);
     await wait(150);

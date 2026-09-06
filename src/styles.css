@@ -1590,6 +1590,15 @@ input:focus-visible {
   pointer-events: none;
 }
 
+/* A cry belongs to the animal that made it, so it wears that pad's colours
+ * rather than the cream card the tanuki's own words use. */
+.float-word.is-cry {
+  border-color: rgba(255, 255, 255, 0.96);
+  color: #4a3b28;
+  background: rgba(255, 255, 255, 0.94);
+  font-size: clamp(19px, 3.2vmin, 38px);
+}
+
 /* A note needs no card: it reads perfectly well against a coloured pad. */
 .float-word.is-note {
   padding: 0;

@@ -41,6 +41,7 @@ import {
   isPlayActivity,
   literacyCatalog,
   loadSavedState,
+  BUBBLE_CELLS,
   makeBubble,
   nextCourse,
   nextGuest,
@@ -126,6 +127,7 @@ const state = {
   bonusSprites: false,
   lifecycle: 0,
   timers: [],
+  intervals: [],
   listeners: [],
   quest: null,
   hintTicker: null,
@@ -164,6 +166,20 @@ function clear(node) {
 function on(target, type, handler, options) {
   target.addEventListener(type, handler, options);
   state.listeners.push({ target: target, type: type, handler: handler, options: options });
+}
+
+/*
+ * A repeating timer owned by the current scene. Same contract as `schedule`:
+ * it stops mattering the moment the scene ends.
+ */
+function repeat(callback, delay) {
+  const lifecycle = state.lifecycle;
+  const timer = window.setInterval(function () {
+    if (lifecycle !== state.lifecycle) return;
+    callback();
+  }, delay);
+  state.intervals.push(timer);
+  return timer;
 }
 
 function schedule(callback, delay) {
@@ -219,6 +235,10 @@ function clearRuntime() {
     clearTimeout(timer);
   });
   state.timers = [];
+  state.intervals.forEach(function (timer) {
+    clearInterval(timer);
+  });
+  state.intervals = [];
   state.listeners.forEach(function (entry) {
     entry.target.removeEventListener(entry.type, entry.handler, entry.options);
   });
@@ -381,11 +401,7 @@ function startQuest(config) {
     onWrong: config.onWrong,
   };
   if (state.hintTicker === null) {
-    const lifecycle = state.lifecycle;
-    state.hintTicker = window.setInterval(function () {
-      if (lifecycle !== state.lifecycle) return;
-      updateHint();
-    }, 400);
+    state.hintTicker = repeat(updateHint, 400);
   }
   announceTarget(false);
 }
@@ -1359,9 +1375,7 @@ function toyConfetti() {
  */
 function startToyIdle(getObjects) {
   state.lastToyTouch = Date.now();
-  const lifecycle = state.lifecycle;
-  state.hintTicker = window.setInterval(function () {
-    if (lifecycle !== state.lifecycle) return;
+  repeat(function () {
     if (Date.now() - state.lastToyTouch < TOY_IDLE) return;
     state.lastToyTouch = Date.now();
     hopTanuki();
@@ -1381,10 +1395,11 @@ function renderBand() {
   const row = el("div", "band-row");
 
   dealBand(Math.random).forEach(function (member) {
+    const animal = animalById(member.animal);
     const pad = el("button", "band-pad");
     pad.type = "button";
     pad.setAttribute("data-item", member.id);
-    pad.setAttribute("aria-label", member.label);
+    pad.setAttribute("aria-label", animal.label);
     pad.style.setProperty("--pad-color", member.color);
     pad.innerHTML = '<i class="band-ring"></i>' + spriteMarkup(member.animal, "band-sprite")
       + '<b class="band-badge">♪</b>';
@@ -1404,9 +1419,15 @@ function renderBand() {
 }
 
 function strikeBand(pad, member) {
-  audio.note(member.frequency, member.voice);
+  const animal = animalById(member.animal);
+  /* The animal's own voice, with a quiet pentatonic note under it so that six
+   * of them shouting at once still land on a chord. */
+  audio.cry(member.animal);
+  audio.note(member.frequency, "under");
   hop(pad, 460);
-  floatWord(pad, "♪", "is-note");
+  /* The cry, written. Shown rather than spoken: the sound is already the
+   * sound, and a voice on top of it would only be in the way. */
+  floatWord(pad, animal.cry, "is-cry");
   danceTanuki(3);
   toyTouched();
 }
@@ -1655,14 +1676,37 @@ function renderBubbles() {
   parts.field.appendChild(sky);
   state.bubbleSerial = 0;
   dealBubbles(Math.random).forEach(function (bubble) {
-    state.bubbleSerial = Math.max(state.bubbleSerial, 1);
+    state.bubbleSerial += 1;
     sky.appendChild(makeBubbleNode(bubble));
   });
-  state.bubbleSerial = 6;
+  /*
+   * The sky is also topped up on a heartbeat, not only when something pops. A
+   * pop schedules its own replacement, but a timer that runs late — a busy
+   * device, a backgrounded tab — would leave a hole, and an empty sky is the
+   * one state this toy is not allowed to reach.
+   */
+  repeat(refillSky, 700);
   startToyIdle(function () {
     return dom.stage.querySelectorAll(".bubble:not(.is-popped)");
   });
   danceTanuki(2);
+}
+
+/* Put a bubble in every cell that has not got one. Idempotent, so the pop
+ * timer and the heartbeat can both call it without doubling up. */
+function refillSky() {
+  const sky = dom.stage.querySelector(".bubble-sky");
+  if (!sky) return;
+  const taken = {};
+  const live = sky.querySelectorAll(".bubble:not(.is-popped)");
+  for (let index = 0; index < live.length; index += 1) {
+    taken[live[index].getAttribute("data-cell")] = true;
+  }
+  for (let cell = 0; cell < BUBBLE_CELLS; cell += 1) {
+    if (taken[String(cell)]) continue;
+    state.bubbleSerial += 1;
+    sky.appendChild(makeBubbleNode(makeBubble(cell, state.bubbleSerial, Math.random)));
+  }
 }
 
 function makeBubbleNode(bubble) {
@@ -1699,17 +1743,11 @@ function popBubble(button, bubble) {
   hopTanuki();
   if (state.playTaps % 3 === 0) toySpeak(TOY_LINES.pop);
 
-  /*
-   * Replaced as soon as the pop has finished playing. A slower refill let a
-   * fast pair of hands empty the sky, and an empty sky is the one state this
-   * toy is not allowed to reach.
-   */
-  const sky = dom.stage.querySelector(".bubble-sky");
+  /* Cleared away as soon as the pop has finished playing, and the cell it
+   * leaves behind is filled straight after. */
   schedule(function () {
     if (button.parentNode) button.parentNode.removeChild(button);
-    if (!sky || !sky.parentNode) return;
-    state.bubbleSerial += 1;
-    sky.appendChild(makeBubbleNode(makeBubble(bubble.cell, state.bubbleSerial, Math.random)));
+    refillSky();
   }, motion(60, 420));
 }
 

@@ -51,6 +51,11 @@ Use this order when trade-offs arise.
   glass with a whole hand and every one of those touches has to answer. Each element owns
   its own animation, and an already-used one still responds. Adding a busy guard here is a
   regression, not a fix.
+- **An animal that can be pressed makes its own noise.** The band's cries are synthesised in
+  `AudioDirector.cry()`, not spoken: speech is late, dies with the voice setting, and cancels
+  itself when a child hammers six pads. Only animals with an iconic cry may join the band —
+  a pad with nothing to say when pressed is a dead button — and `tests/audio.test.mjs`
+  enforces it by driving the synthesiser against a recording stand-in for Web Audio.
 - **A toy has no wrong answer, by construction.** Not "forgiven" — absent. Every hiding
   place has someone in it; every band pitch is pentatonic so no order is sour.
 - **All four toys share one arrangement**: the tanuki is the largest thing on screen and

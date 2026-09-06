@@ -183,6 +183,87 @@ export class AudioDirector {
   }
 
   /*
+   * An animal's own voice, built from oscillators rather than spoken.
+   *
+   * Synthesis rather than speech for three reasons: it answers the finger with
+   * no delay, it still works when the voice is switched off, and a child
+   * hammering six pads does not make six utterances cancel each other. None of
+   * these is a caricature of a recording — they are the cartoon version, which
+   * is what a two-year-old recognises anyway.
+   */
+  cry(animal) {
+    if (!this.getSettings().effects) return;
+    this.unlock();
+    if (!this.context) return;
+    const self = this;
+    if (animal === "dog") {
+      /* A bark is mostly transient: a noise burst with a fast falling tone
+       * under it, twice, because one bark sounds like a cough. */
+      [0, 0.19].forEach(function (delay, index) {
+        self.noise(0.06, { frequency: 1500, volume: 0.05, delay: delay });
+        self.tone(index ? 380 : 440, 0.12, {
+          ramp: [index ? 380 : 440, 150],
+          type: "sawtooth",
+          volume: 0.055,
+          attack: 0.006,
+          delay: delay,
+        });
+      });
+    } else if (animal === "cat") {
+      /* One syllable that slides up and then back down: that shape is the
+       * whole of a meow. */
+      this.tone(430, 0.52, {
+        ramp: [430, 880, 780, 360],
+        type: "sawtooth",
+        volume: 0.038,
+        attack: 0.05,
+      });
+      this.tone(860, 0.46, { ramp: [860, 1760, 1560, 720], type: "sine", volume: 0.012 });
+    } else if (animal === "pig") {
+      [0, 0.15, 0.3].forEach(function (delay) {
+        self.noise(0.09, { frequency: 800, volume: 0.035, delay: delay });
+        self.tone(215, 0.11, {
+          ramp: [215, 125],
+          type: "sawtooth",
+          volume: 0.05,
+          attack: 0.008,
+          delay: delay,
+        });
+      });
+    } else if (animal === "bird") {
+      [0, 0.12, 0.24].forEach(function (delay) {
+        self.tone(1900, 0.07, {
+          ramp: [1900, 3100],
+          type: "sine",
+          volume: 0.04,
+          attack: 0.008,
+          delay: delay,
+        });
+      });
+    } else if (animal === "lion") {
+      /* Low, broad and swelling. The tone wanders so it growls rather than
+       * hums. */
+      this.noise(0.8, { frequency: 340, volume: 0.055, attack: 0.2 });
+      this.tone(96, 0.85, {
+        ramp: [96, 128, 112, 88],
+        type: "sawtooth",
+        volume: 0.05,
+        attack: 0.18,
+      });
+    } else if (animal === "elephant") {
+      /* Brassy and rising: the sweep upward is what makes it a trumpet and not
+       * a foghorn. */
+      this.tone(280, 0.66, {
+        ramp: [280, 740, 680, 300],
+        type: "sawtooth",
+        volume: 0.05,
+        attack: 0.05,
+      });
+      this.noise(0.6, { frequency: 1100, volume: 0.018, attack: 0.06 });
+    }
+  }
+
+  /*
    * One friend of the band playing one note. Pitch is chosen by content.js from
    * a pentatonic scale, so this only has to give each friend a recognisable
    * voice — the same animal must always sound like itself.
@@ -210,6 +291,12 @@ export class AudioDirector {
     } else if (voice === "horn") {
       this.tone(pitch, 0.42, { type: "sawtooth", volume: 0.028 });
       this.tone(pitch * 2, 0.4, { type: "sine", volume: 0.022 });
+    } else if (voice === "under") {
+      /* The quiet note that sits beneath an animal's cry. Loud enough to tie
+       * six voices onto one chord, quiet enough that the cry is still the
+       * thing you hear. */
+      this.tone(pitch, 0.46, { type: "triangle", volume: 0.016 });
+      this.tone(pitch * 2, 0.22, { type: "sine", volume: 0.006 });
     } else {
       /* marimba: a wooden knock with an octave shimmer over it. */
       this.tone(pitch, 0.34, { type: "triangle", volume: 0.05 });
@@ -228,6 +315,12 @@ export class AudioDirector {
     });
   }
 
+  /*
+   * `ramp` is a pitch envelope: the oscillator walks through the frequencies
+   * evenly across the duration. A single `endFrequency` is the two-point case.
+   * Animal cries need three or four points — a meow slides up and then back
+   * down again, and one ramp cannot say that.
+   */
   tone(frequency, duration, options) {
     const context = this.context;
     if (!context) return;
@@ -236,13 +329,22 @@ export class AudioDirector {
       const start = context.currentTime + (settings.delay || 0);
       const oscillator = context.createOscillator();
       const gain = context.createGain();
+      const ramp = settings.ramp && settings.ramp.length ? settings.ramp : null;
+      const attack = settings.attack || 0.014;
       oscillator.type = settings.type || "sine";
-      oscillator.frequency.setValueAtTime(frequency, start);
-      if (settings.endFrequency) {
+      oscillator.frequency.setValueAtTime(ramp ? ramp[0] : frequency, start);
+      if (ramp && ramp.length > 1) {
+        for (let index = 1; index < ramp.length; index += 1) {
+          oscillator.frequency.exponentialRampToValueAtTime(
+            ramp[index],
+            start + (duration * index) / (ramp.length - 1),
+          );
+        }
+      } else if (settings.endFrequency) {
         oscillator.frequency.exponentialRampToValueAtTime(settings.endFrequency, start + duration);
       }
       gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(settings.volume || 0.035, start + 0.014);
+      gain.gain.exponentialRampToValueAtTime(settings.volume || 0.035, start + attack);
       gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
       oscillator.connect(gain);
       gain.connect(this.master || context.destination);
@@ -262,16 +364,26 @@ export class AudioDirector {
       const frameCount = Math.ceil(context.sampleRate * duration);
       const buffer = context.createBuffer(1, frameCount, context.sampleRate);
       const channel = buffer.getChannelData(0);
+      /* With an attack the envelope is drawn on the gain node instead, so the
+       * buffer stays flat — a roar has to swell, not start at full volume. */
+      const attack = settings.attack || 0;
       for (let index = 0; index < frameCount; index += 1) {
-        channel[index] = (Math.random() * 2 - 1) * (1 - index / frameCount);
+        channel[index] = (Math.random() * 2 - 1) * (attack ? 1 : 1 - index / frameCount);
       }
       const source = context.createBufferSource();
       const filter = context.createBiquadFilter();
       const gain = context.createGain();
+      const volume = settings.volume || 0.02;
       source.buffer = buffer;
-      filter.type = "lowpass";
+      filter.type = settings.filter || "lowpass";
       filter.frequency.value = settings.frequency || 1000;
-      gain.gain.value = settings.volume || 0.02;
+      if (attack) {
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(volume, start + attack);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      } else {
+        gain.gain.value = volume;
+      }
       source.connect(filter);
       filter.connect(gain);
       gain.connect(this.master || context.destination);

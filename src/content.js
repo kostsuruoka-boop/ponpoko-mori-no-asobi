@@ -244,18 +244,26 @@ export const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(function (gly
  */
 
 /*
- * The band. Every pitch is a degree of the C major pentatonic scale, so a
- * toddler hammering all six friends at once still produces something
- * consonant. There is no wrong note to play, by construction rather than by
- * forgiveness.
+ * The band.
+ *
+ * Every member is an animal whose cry a small child already knows, and pressing
+ * it makes that cry — a dog barks, an elephant trumpets. The cries are
+ * synthesised rather than spoken, so they answer the finger instantly, survive
+ * the voice being switched off, and can be hammered without each one cutting
+ * off the last.
+ *
+ * `frequency` is the quiet note that plays underneath the cry. Every one is a
+ * degree of the C major pentatonic scale, so six animals shouting at once still
+ * sit on a chord instead of a pile-up. Only animals with an iconic Japanese
+ * onomatopoeia are eligible, which is what fixes this line-up at these six.
  */
 export const BAND_MEMBERS = [
-  { id: "band-elephant", animal: "elephant", label: "ラッパ", voice: "horn", frequency: 196.0, color: "#8fc98d" },
-  { id: "band-dog", animal: "dog", label: "たいこ", voice: "drum", frequency: 261.63, color: "#f0a071" },
-  { id: "band-cat", animal: "cat", label: "もっきん", voice: "marimba", frequency: 587.33, color: "#f3c750" },
-  { id: "band-panda", animal: "panda", label: "ピアノ", voice: "marimba", frequency: 659.25, color: "#f39ab0" },
-  { id: "band-monkey", animal: "monkey", label: "タンバリン", voice: "shaker", frequency: 880.0, color: "#c096dd" },
-  { id: "band-bird", animal: "bird", label: "すず", voice: "bell", frequency: 1046.5, color: "#82c9e8" },
+  { id: "band-lion", animal: "lion", frequency: 196.0, color: "#f0a071" },
+  { id: "band-elephant", animal: "elephant", frequency: 261.63, color: "#8fc98d" },
+  { id: "band-pig", animal: "pig", frequency: 293.66, color: "#f39ab0" },
+  { id: "band-dog", animal: "dog", frequency: 329.63, color: "#f3c750" },
+  { id: "band-cat", animal: "cat", frequency: 440.0, color: "#c096dd" },
+  { id: "band-bird", animal: "bird", frequency: 1046.5, color: "#82c9e8" },
 ];
 
 /* The tanuki's own belly drum: the one thing every tanuki story has. */
