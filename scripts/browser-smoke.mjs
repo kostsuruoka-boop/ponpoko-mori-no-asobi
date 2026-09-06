@@ -356,6 +356,36 @@ async function checkUniformBoard(activity) {
   }
 }
 
+/*
+ * A hiding place is drawn on a square, sized from its cell's height, so on a
+ * tall narrow cell it grows wider than the cell and spills over its neighbour
+ * or off the screen. Checked rather than reasoned about, because the cell shape
+ * depends on the viewport.
+ */
+async function checkHideoutsFit() {
+  const report = await evaluate(`(() => {
+    const spots = [...document.querySelectorAll(".hideout")];
+    if (!spots.length) return { ok: 0 };
+    for (const spot of spots) {
+      const box = spot.querySelector(".hideout-box");
+      if (!box) return { missing: true };
+      const cell = spot.getBoundingClientRect();
+      const art = box.getBoundingClientRect();
+      if (art.left < cell.left - 1 || art.right > cell.right + 1) {
+        return {
+          spills: Math.round(Math.max(cell.left - art.left, art.right - cell.right)),
+          cell: [Math.round(cell.width), Math.round(cell.height)],
+          art: [Math.round(art.width), Math.round(art.height)],
+        };
+      }
+    }
+    return { ok: spots.length };
+  })()`);
+  if (report.ok === undefined) {
+    throw new Error(`peekaboo: a hiding place overflows its cell ${JSON.stringify(report)}`);
+  }
+}
+
 async function checkNoOverflow(where) {
   const view = await evaluate(
     "({ w: innerWidth, h: innerHeight, sw: document.documentElement.scrollWidth, sh: document.documentElement.scrollHeight })",
@@ -462,6 +492,7 @@ async function playToy(activity) {
   const smallest = await checkTapTargets(activity);
   await checkAskFits(activity);
   await checkUniformBoard(activity);
+  if (activity === "peekaboo") await checkHideoutsFit();
   await checkNoOverflow(activity);
   await shot(activity);
 

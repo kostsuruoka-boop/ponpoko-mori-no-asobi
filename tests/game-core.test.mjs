@@ -620,8 +620,22 @@ test("every hiding place can hide and reveal a guest", () => {
     /* The window has to leave room above the opening for a guest to rise into,
      * and the opening has to sit low enough to look like a container. */
     assert.ok(hideout.coverTop >= 50 && hideout.coverTop <= 72, `${name} opening is misplaced`);
-    assert.ok(hideout.guestScale > 0.3 && hideout.guestScale < 0.7);
+    assert.ok(hideout.guestScale > 0.3 && hideout.guestScale < 0.9);
     assert.ok(hideout.lip > 0 && hideout.lip < 30);
+    /*
+     * A guest is only visible between the top of the box and the opening, so
+     * anything larger than this has its head clipped off — which is exactly
+     * how they ended up looking too small the first time, from the other side.
+     */
+    const largest = (hideout.coverTop / 100) / (1 - hideout.lip / 100);
+    assert.ok(
+      hideout.guestScale <= largest,
+      `${name} guest is taller than its window (${hideout.guestScale} > ${largest.toFixed(2)})`,
+    );
+    assert.ok(
+      hideout.guestScale > largest - 0.09,
+      `${name} guest wastes its window (${hideout.guestScale} vs ${largest.toFixed(2)})`,
+    );
   });
   assert.equal(hideoutFor("nowhere"), HIDEOUTS.box);
 });

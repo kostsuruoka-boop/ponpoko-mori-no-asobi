@@ -262,17 +262,32 @@ const BUSH_HIDE_FRONT = svg(
 /*
  * `coverTop` is where the opening is, as a percentage of the box: the guest is
  * clipped above it and the container is drawn below it. `guestScale` is the
- * guest's width as a fraction of the box, and `lip` sinks it into the opening
- * far enough that it reads as standing inside rather than balanced on top —
- * sprites carry transparent margins, so a small lip leaves a guest floating.
+ * guest's size as a fraction of the box, and `lip` sinks it into the opening so
+ * it reads as standing inside rather than balanced on top — sprites carry
+ * transparent margins, so a small lip leaves a guest floating.
+ *
+ * `guestScale` is not a free choice. A guest is clipped at the opening, so the
+ * largest it can be without losing its head off the top of the box is
+ *
+ *     guestScale = (coverTop/100 - headroom) / (1 - lip/100)
+ *
+ * and every value below is that maximum, with 3% of headroom. Chosen by eye
+ * instead, they came out about a third too small: a guest that only shows its
+ * face is not much of a surprise.
+ *
+ * `coverTop` therefore sits well BELOW the top edge of the drawn container,
+ * not level with it. The container art is opaque and painted over the guest, so
+ * it does the hiding; the clip only has to be low enough to allow a big guest.
+ * Setting the two level, which looks like the tidy choice, is what made the
+ * guests in the pot and the box noticeably smaller than the ones in the leaves.
  */
 export const HIDEOUTS = {
-  bush: { back: BUSH_BACK, front: BUSH_HIDE_FRONT, coverTop: 70, guestScale: 0.6, lip: 20 },
-  pot: { back: POT_BACK, front: POT_FRONT, coverTop: 56, guestScale: 0.48, lip: 18 },
-  box: { back: BOX_BACK, front: BOX_FRONT, coverTop: 56, guestScale: 0.52, lip: 18 },
-  leaves: { back: LEAF_BACK, front: LEAF_FRONT, coverTop: 70, guestScale: 0.58, lip: 20 },
-  hollow: { back: STUMP_BACK, front: STUMP_FRONT, coverTop: 54, guestScale: 0.48, lip: 17 },
-  basket: { back: BASKET_BACK, front: BASKET_FRONT, coverTop: 58, guestScale: 0.48, lip: 18 },
+  bush: { back: BUSH_BACK, front: BUSH_HIDE_FRONT, coverTop: 70, guestScale: 0.81, lip: 17 },
+  pot: { back: POT_BACK, front: POT_FRONT, coverTop: 66, guestScale: 0.75, lip: 16 },
+  box: { back: BOX_BACK, front: BOX_FRONT, coverTop: 62, guestScale: 0.7, lip: 16 },
+  leaves: { back: LEAF_BACK, front: LEAF_FRONT, coverTop: 70, guestScale: 0.81, lip: 17 },
+  hollow: { back: STUMP_BACK, front: STUMP_FRONT, coverTop: 62, guestScale: 0.69, lip: 15 },
+  basket: { back: BASKET_BACK, front: BASKET_FRONT, coverTop: 64, guestScale: 0.72, lip: 15 },
 };
 
 export function hideoutFor(name) {

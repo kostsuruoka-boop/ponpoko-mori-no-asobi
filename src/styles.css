@@ -1357,10 +1357,19 @@ input:focus-visible {
   border-radius: clamp(20px, 3vmin, 36px);
 }
 
+/*
+ * The box is square, because the artwork inside is drawn on a square viewBox
+ * and everything else is positioned as a percentage of it. Its size therefore
+ * comes from the cell's HEIGHT, so on a cell that is taller than it is wide the
+ * square sticks out sideways — which is how the hiding place in the right-hand
+ * column ended up half off the screen. The inset is chosen so the square still
+ * fits the narrower dimension on both iPad orientations, and the browser smoke
+ * test checks that it really does rather than trusting the arithmetic.
+ */
 .hideout-box {
   position: absolute;
-  top: 2%;
-  bottom: 4%;
+  top: 8%;
+  bottom: 8%;
   left: 50%;
   transform: translateX(-50%);
 }
